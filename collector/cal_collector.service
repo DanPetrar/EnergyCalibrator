@@ -1,0 +1,16 @@
+[Unit]
+Description=EnergyCalibrator MQTT collector
+After=network.target mosquitto.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/EnergyCalibrator/collector
+ExecStart=/usr/bin/python3 /home/pi/EnergyCalibrator/collector/cal_collector.py
+Restart=always
+RestartSec=10
+Environment=CAL_DB=/home/pi/EnergyCalibrator/collector/cal_data.db
+Environment=CAL_MQTT_HOST=192.168.110.225
+
+[Install]
+WantedBy=multi-user.target
