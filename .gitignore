@@ -1,0 +1,6 @@
+arduino/EnergyCalibrator/build/
+arduino/EnergyCalibrator/partitions.csv
+collector/cal_data.db
+report/report_*.pdf
+__pycache__/
+*.pyc
