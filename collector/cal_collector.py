@@ -28,7 +28,7 @@ HERE      = os.path.dirname(os.path.abspath(__file__))
 DB_PATH   = os.environ.get('CAL_DB',        os.path.join(HERE, 'cal_data.db'))
 MQTT_HOST = os.environ.get('CAL_MQTT_HOST', '192.168.110.225')
 MQTT_PORT = int(os.environ.get('CAL_MQTT_PORT', '1883'))
-TOPIC_PAT = os.environ.get('CAL_TOPIC',    'cal_+')
+TOPIC_PAT = os.environ.get('CAL_TOPIC',    'cal_')   # prefix filter applied in on_message
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)-5s %(message)s',
@@ -98,8 +98,8 @@ class MqttReader(threading.Thread):
                 log.warning('[MQTT] connect failed: %s', reason_code)
                 return
             log.info('[MQTT] connected to %s:%d', MQTT_HOST, MQTT_PORT)
-            client.subscribe(f'{TOPIC_PAT}/sec')
-            client.subscribe(f'{TOPIC_PAT}/min')
+            client.subscribe('+/sec')
+            client.subscribe('+/min')
 
         def on_disconnect(client, userdata, flags, reason_code, properties):
             if _stop.is_set():
@@ -113,8 +113,10 @@ class MqttReader(threading.Thread):
             parts = msg.topic.split('/')
             if len(parts) != 2:
                 return
-            unit   = parts[0]   # e.g. "cal_73DA28"
+            unit   = parts[0]   # e.g. "cal_F07F8C"
             suffix = parts[1]   # "sec" or "min"
+            if not unit.startswith(TOPIC_PAT):
+                return
 
             if suffix == 'sec':
                 raw = msg.payload
