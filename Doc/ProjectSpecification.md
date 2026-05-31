@@ -187,7 +187,27 @@ Produces a PDF with:
 
 ---
 
-## 7. Known Issues / Observations
+## 7. Soak Test Results (2026-05-31, 10:49–13:31)
+
+2h45m unattended run, 12 checks at 15-min intervals. No load on circuit (idle validation only).
+
+| Metric | Value |
+|--------|-------|
+| Duration | 2h 42m |
+| Checks passed | 12 / 12 |
+| New errors | 0 |
+| sec rows collected | 9908 (~880/15min) |
+| min rows collected | 169 (~15/15min) |
+| Voltage range (box) | 239.6–249.9V |
+| Voltage range (SDM630) | 239.4–249.2V |
+| Frequency range | 49.92–50.03Hz |
+| Collector uptime | 100% (systemd service) |
+
+**Conclusion:** All communication paths (box serial, SDM630 RS485, MQTT, WiFi, collector DB) stable for duration. Ready for real load test.
+
+---
+
+## 8. Known Issues / Observations
 
 - **No load on circuit at commissioning:** A/W/PF/kWh all zero during initial test. Meaningful calibration data requires a connected load.
 - **bat_pct reads -1:** Unit D is powered by box USB — no battery. Normal for this board when no battery is connected.
