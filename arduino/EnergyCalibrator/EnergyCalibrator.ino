@@ -117,7 +117,7 @@ static inline float mb_f32(uint16_t hi, uint16_t lo) {
   float v; memcpy(&v, &raw, 4); return v;
 }
 
-static bool sdm630Poll() {
+bool sdm630Poll() {
   // Read 1: registers 0x0000..0x001F (32 regs = V1-V3, A1-A3, W1-W3, VA1-VA3, VAr1-VAr3, PF1-PF3)
   uint8_t r1 = meter.readInputRegisters(0x0000, 32);
   if (r1 != meter.ku8MBSuccess) {
@@ -130,6 +130,7 @@ static bool sdm630Poll() {
   latestMeter.w  = mb_f32(meter.getResponseBuffer(12), meter.getResponseBuffer(13));  // W1  @ 0x000C
   latestMeter.pf = mb_f32(meter.getResponseBuffer(30), meter.getResponseBuffer(31));  // PF1 @ 0x001E
 
+  delay(100);
   // Read 2: registers 0x0046..0x0049 (4 regs = Hz, kWh_import)
   uint8_t r2 = meter.readInputRegisters(0x0046, 4);
   if (r2 != meter.ku8MBSuccess) {

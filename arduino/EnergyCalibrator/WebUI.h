@@ -37,6 +37,7 @@ extern RingBuf<SecRecord> secBuf;
 extern RingBuf<MinRecord> minBuf;
 extern uint32_t energyStartTs;
 extern bool     gMqttReconnect;
+extern bool     sdm630Poll();
 
 static void nvsEnergyStartSave() {
   Preferences p;
@@ -1300,6 +1301,16 @@ static void handlePostTest() {
     cfg.mqtt_en = true;
     sendJson(200, "{\"msg\":\"mqtt gap ended\"}");
 
+  } else if (strcmp(action, "sdm_poll") == 0) {
+    bool ok = sdm630Poll();
+    if (!ok) { sendJson(502, "{\"err\":\"SDM630 poll failed\"}"); return; }
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+      "{\"v\":%.2f,\"a\":%.3f,\"w\":%.1f,\"pf\":%.3f,\"hz\":%.2f,\"kwh\":%.3f}",
+      latestMeter.v, latestMeter.a, latestMeter.w,
+      latestMeter.pf, latestMeter.hz, latestMeter.kwh);
+    sendJson(200, buf);
+
   } else {
     sendJson(400, "{\"err\":\"unknown action\"}");
   }
@@ -1399,6 +1410,17 @@ static void handleOtaUpload() {
   }
 }
 
+static void handleGetSdm() {
+  bool ok = sdm630Poll();
+  if (!ok) { sendJson(502, "{\"err\":\"SDM630 poll failed\"}"); return; }
+  char buf[128];
+  snprintf(buf, sizeof(buf),
+    "{\"v\":%.2f,\"a\":%.3f,\"w\":%.1f,\"pf\":%.3f,\"hz\":%.2f,\"kwh\":%.3f}",
+    latestMeter.v, latestMeter.a, latestMeter.w,
+    latestMeter.pf, latestMeter.hz, latestMeter.kwh);
+  sendJson(200, buf);
+}
+
 static void handleNotFound() {
   server.send(404, "text/plain", "Not found");
 }
@@ -1420,6 +1442,7 @@ static void setupWebRoutes() {
   server.on("/api/reset_energy", HTTP_POST, handleResetEnergy);
   server.on("/api/ota_meta",     HTTP_GET,  handleGetOtaMeta);
   server.on("/api/ota",          HTTP_POST, handleOtaComplete, handleOtaUpload);
+  server.on("/api/sdm",          HTTP_GET,  handleGetSdm);
 #if TEST_MODE
   server.on("/api/test",     HTTP_POST,   handlePostTest);
 #endif

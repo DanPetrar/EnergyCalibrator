@@ -1,5 +1,11 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.1 — 2026-05-31
+
+- Fix SDM630 consecutive read timeout: add 100ms delay between read1 and read2
+- Add `/api/sdm` GET endpoint for on-demand SDM630 poll (always available, returns V/A/W/PF/Hz/kWh)
+- Unit D (MAC F0:7F:8C) commissioned: box serial + SDM630 RS485, powered by box
+
 ## v1.0.0 — 2026-05-30
 
 Initial release.
