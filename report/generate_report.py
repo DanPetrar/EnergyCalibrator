@@ -38,8 +38,15 @@ LOAD_BANDS = [
     (0,    200,  '0 – 200 W'),
     (200,  500,  '200 – 500 W'),
     (500,  1000, '500 – 1000 W'),
-    (1000, None, '> 1000 W'),
+    (1000, 1500, '1000 – 1500 W'),
+    (1500, None, '> 1500 W'),
 ]
+
+CT_INFO = {
+    'R': 'TDK 30A',
+    'S': 'TDK 80A',
+    'T': 'YHDC 120A',
+}
 
 
 def dev_bg(pct):
@@ -265,8 +272,10 @@ def _kpi_row(sdm_kwh, ct_info):
         return Paragraph(f'<font name="{fn}" size="{sz}" color="{color}">{txt}</font>',
                          ParagraphStyle('kpi', leading=sz + 3))
 
-    def cell(label, kwh, dev_pct):
+    def cell(label, kwh, dev_pct, subtitle=None):
         lines = [_p(label, 9, bold=True)]
+        if subtitle:
+            lines.append(_p(subtitle, 8, color='#ccddff'))
         lines.append(_p(f'{kwh:.4f} kWh', 13, bold=True))
         if dev_pct is not None:
             dc = '#90EE90' if abs(dev_pct) < THR_GREEN else \
@@ -278,7 +287,8 @@ def _kpi_row(sdm_kwh, ct_info):
 
     cells = [cell('SDM630', sdm_kwh, None)]
     for ch in ('R', 'S', 'T'):
-        cells.append(cell(f'CT-{ch}', ct_info[ch]['kwh'], ct_info[ch]['dev']))
+        cells.append(cell(f'CT-{ch}', ct_info[ch]['kwh'], ct_info[ch]['dev'],
+                          subtitle=CT_INFO[ch]))
 
     bgs = [COL_DARK] + [kpi_bg(ct_info[ch]['dev']) for ch in ('R', 'S', 'T')]
     t = Table([cells], colWidths=[4.15 * cm] * 4, rowHeights=[2.4 * cm])
@@ -311,6 +321,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
                             topMargin=1.8*cm, bottomMargin=1.8*cm)
     S = _styles()
     story = []
+    ct_footnote = '  ·  '.join(f'CT-{ch}: {CT_INFO[ch]}' for ch in ('R','S','T'))
 
     def hr(thick=0.5):
         return HRFlowable(width='100%', thickness=thick,
@@ -518,6 +529,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
                         col_widths=[3.0*cm, 2.0*cm, 2.0*cm,
                                     3.0*cm, 2.3*cm, 2.3*cm, 2.4*cm],
                         row_styles=band_styles))
+    story.append(Paragraph(f'Sensors — {ct_footnote}', S['Sm']))
 
     doc.build(story)
 
