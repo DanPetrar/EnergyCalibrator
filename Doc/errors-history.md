@@ -33,6 +33,18 @@ Append one entry per non-trivial debugging session.
 
 ---
 
+### 2026-05-31 — Energy deviation inflated by W-snapshot integration
+
+**Symptom:** Live monitor showed CT energy deviations of −4% to −7% vs SDM630. PDF report (using `sum(X_dkwh)` from cal_min) showed only ±1%. Same period, same data, different numbers.
+
+**Root cause:** The monitor computed box energy as `sum(W_sec) / 3_600_000` — integrating per-second power snapshots from cal_sec. Approximately 3.5% of cal_sec rows are missing (MQTT packets dropped in transit). Those seconds are not counted, so the box energy is systematically under-counted by ~3.5%, making the deviation appear larger than it really is. The PDF used `sum(R_dkwh)` from cal_min, which is the box firmware's own energy accumulator — unaffected by MQTT drops.
+
+**Fix:** Monitor updated to use `sum(R/S/T_dkwh)` from cal_min for box energy, consistent with the PDF. W-snapshot integration (`sum(W_sec)/3_600_000`) must never be used for energy deviation calculation.
+
+**Rule:** All energy comparisons must use counter deltas (`dkwh` columns). `W` values in cal_sec and cal_min are instantaneous snapshots — valid for power display, not for energy accounting.
+
+---
+
 ### 2026-05-31 — OTA silent failure with `--data-binary`
 
 **Symptom:** `curl --data-binary @file.bin` returned exit 56 (connection reset), but Unit D rebooted and stayed on the old firmware version.

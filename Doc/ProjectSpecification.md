@@ -1,14 +1,22 @@
 # EnergyCalibrator — Project Specification
 
-**Version:** 1.0 (2026-05-31)  
+**Version:** 1.1 (2026-05-31)  
 **Firmware:** v1.0.1  
-**Status:** Operational — collecting calibration data
+**Status:** Operational — real-load calibration session active
 
 ---
 
 ## 1. Purpose
 
 Parallel CT calibration tool. Three CT sensors from a measurement box (R/S/T channels) are all clamped on the same single-phase wire simultaneously. An Eastron SDM630-M revenue-grade smart meter on the same wire acts as the reference. The system measures each CT's deviation from the reference over time (V, A, W, PF, kWh) to characterise accuracy.
+
+**CT sensors under test:**
+
+| Channel | Sensor | Rated current |
+|---------|--------|---------------|
+| R | TDK | 30 A |
+| S | TDK | 80 A |
+| T | YHDC | 120 A |
 
 ---
 
@@ -55,6 +63,8 @@ Parallel CT calibration tool. Three CT sensors from a measurement box (R/S/T cha
 
 100ms inter-read delay required between Read 1 and Read 2.
 
+**SDM630 poll timing:** triggered immediately after box minute frame is received. Total duration ~226ms (Read1 ~98ms + delay 100ms + Read2 ~28ms). The `cal_min.ts` field stores `latestMeter.ts` — the SDM read completion time, not the box minute timestamp. The ~226ms offset is consistent every minute so energy counter deltas are not affected.
+
 ### 2.3 Measurement Box
 
 Sends per-second and per-minute serial frames on GPIO5 (115200 8N1) for channels R/S/T.
@@ -81,9 +91,9 @@ Sends per-second and per-minute serial frames on GPIO5 (115200 8N1) for channels
 ```
 Box serial (UART1, GPIO5)
   └─ per-second frames (R/S/T) ──→ SecRecord ──→ MQTT cal_F07F8C/sec (binary, 76 bytes)
-  └─ per-minute frames (ch==2)  ──→ trigger SDM630 poll
+  └─ per-minute frames (ch==2)  ──→ trigger SDM630 poll (~226ms)
                                        │
-                          UART2 (GPIO15/16, Modbus RTU)
+                          UART2 (GPIO15/16, Modbus RTU, 9600 baud)
                                        │
                                  SDM630 Read1 + 100ms + Read2
                                        │
@@ -132,7 +142,7 @@ Unit D reboots on success (~30s). Verify with `curl http://192.168.110.104/api/s
 ## 4. Collector (Pi-side)
 
 **File:** `collector/cal_collector.py`  
-**Service:** `collector/cal_collector.service`  
+**Service:** `collector/cal_collector.service` (systemd, auto-starts on boot)  
 **DB:** `collector/cal_data.db` (SQLite)  
 **Broker:** 192.168.110.225:1883  
 **Subscribes:** `+/sec`, `+/min` (filters `cal_` prefix in handler)
@@ -145,6 +155,8 @@ Unit D reboots on success (~30s). Verify with `curl http://192.168.110.104/api/s
 **`cal_min`** — paired box + meter + deviations  
 `ts, unit, mtr_v/a/w/pf/hz/dkwh, R/S/T_v/a/w/pf/hz, R/S/T_dkwh, R/S/T_dev_v/a/w/pf/dkwh_abs/pct`
 
+Note: `ts` = `latestMeter.ts` (SDM read completion). `R/S/T_dkwh` = box firmware energy accumulator delta. `mtr_dkwh` = SDM kWh register delta.
+
 ### Start collector as service
 
 ```bash
@@ -156,23 +168,76 @@ sudo systemctl start cal_collector
 
 ---
 
-## 5. Report Generator (Workstation)
+## 5. Live Monitor
 
-**File:** `report/generate_report.py`  
-**Requires:** `pip3 install reportlab`  
-**DB source:** `collector/cal_data.db` (copy to workstation or run on Pi)
+**File:** `collector/monitor.py`  
+**Usage:** `python3 collector/monitor.py`
 
-```bash
-python3 generate_report.py [--db PATH] [--unit cal_F07F8C] [--hours 24] [--out report.pdf]
-```
+Prints a 30-min snapshot to the terminal:
+- Instantaneous V/A/W/PF for box R/S/T and SDM630 (from latest sec + closest min row)
+- SDM internal consistency check: V×A×PF vs reported W
+- Energy deviation for last 30 min and cumulative from START_TS (2026-05-31 15:30)
+- sec row coverage
 
-Produces a PDF with:
-- Per-CT hourly deviation stats (min/max/avg for V, A, W, PF, kWh)
-- Energy summary: meter total vs each CT total, absolute and % deviation
+**Energy method:** `sum(X_dkwh)` from cal_min for both box and SDM — energy counter deltas, never W-snapshot averaging.
 
 ---
 
-## 6. Commissioning Record (2026-05-31)
+## 6. Report Generator
+
+**File:** `report/generate_report.py`  
+**Requires:** `pip3 install reportlab` (installed on Pi)  
+**Usage:**
+```bash
+python3 report/generate_report.py --date YYYY-MM-DD --unit cal_F07F8C
+python3 report/generate_report.py --all --unit cal_F07F8C
+```
+
+### Energy methodology
+
+All deviations use **energy counter deltas** exclusively:
+- Box CT energy: `sum(R/S/T_dkwh)` from `cal_min` (firmware accumulator, unaffected by MQTT drops)
+- SDM630 energy: `sum(mtr_dkwh)` from `cal_min` (SDM kWh register delta)
+
+W-snapshot averaging (`sum(W_sec)/3_600_000`) is NOT used for energy — it under-counts by ~3.5% due to MQTT packet drops in `cal_sec`.
+
+### Report layout
+
+1. **Day Overview** — KPI boxes (SDM + CT-R/S/T with sensor model) and CT ranking table
+2. **Hourly Summary** — one row per hour: SDM avg W, SDM kWh, CT-R/S/T energy deviation (colour coded green/yellow/red), peak W, coverage %
+3. **All-day Measurement Statistics** — avg V/A/W/PF with deviation % per CT vs SDM (from 1 Hz cal_sec samples), std W
+4. **Deviation by Load Band** — 5 bands (0–200, 200–500, 500–1000, 1000–1500, >1500 W); per-minute energy counter deviation `(X_dkwh − mtr_dkwh) / mtr_dkwh` averaged per band
+5. **Sensor footnote** — CT-R: TDK 30A · CT-S: TDK 80A · CT-T: YHDC 120A
+
+Deviation thresholds: green < 3%, yellow 3–6%, red > 6%.
+
+---
+
+## 7. Daily Report Delivery
+
+**Script:** `report/daily_report.sh`  
+**Cron:** `5 0 * * *` — generates report for previous calendar day automatically  
+**Output:** `/home/pi/EnergyCalibrator/reports/report_YYYYMMDD_HHMMSS.pdf`  
+**Log:** `reports/cron.log`
+
+### Report web server
+
+**File:** `reports/serve.py`  
+**Service:** `reports/cal_reports.service` (systemd, port 8080, auto-starts)  
+**URL:** http://192.168.110.225:8080/  
+
+Lists all available PDFs with download links. New reports appear automatically.
+
+```bash
+# Install service (already done)
+sudo cp reports/cal_reports.service /etc/systemd/system/
+sudo systemctl enable cal_reports
+sudo systemctl start cal_reports
+```
+
+---
+
+## 8. Commissioning Record (2026-05-31)
 
 | Step | Result |
 |------|--------|
@@ -187,7 +252,7 @@ Produces a PDF with:
 
 ---
 
-## 7. Soak Test Results (2026-05-31, 10:49–13:31)
+## 9. Soak Test Results (2026-05-31, 10:49–13:31)
 
 2h45m unattended run, 12 checks at 15-min intervals. No load on circuit (idle validation only).
 
@@ -196,19 +261,37 @@ Produces a PDF with:
 | Duration | 2h 42m |
 | Checks passed | 12 / 12 |
 | New errors | 0 |
-| sec rows collected | 9908 (~880/15min) |
-| min rows collected | 169 (~15/15min) |
+| sec rows collected | 9908 |
+| min rows collected | 169 |
 | Voltage range (box) | 239.6–249.9V |
 | Voltage range (SDM630) | 239.4–249.2V |
 | Frequency range | 49.92–50.03Hz |
-| Collector uptime | 100% (systemd service) |
 
-**Conclusion:** All communication paths (box serial, SDM630 RS485, MQTT, WiFi, collector DB) stable for duration. Ready for real load test.
+**Conclusion:** All communication paths stable. Ready for real load test.
 
 ---
 
-## 8. Known Issues / Observations
+## 10. First Real-Load Calibration Session (2026-05-31, 15:30–23:00)
 
-- **No load on circuit at commissioning:** A/W/PF/kWh all zero during initial test. Meaningful calibration data requires a connected load.
-- **bat_pct reads -1:** Unit D is powered by box USB — no battery. Normal for this board when no battery is connected.
-- **Box comm losses during setup:** Multiple `Box comm lost` entries in error log are from the pre-wiring period (USB resets during flashing). Not a fault.
+Clean data start: 15:30 (pre-15:30 rows deleted — hardware unstable before that point).
+
+**Results after ~7.5 hours / ~450 minute samples:**
+
+| CT | Sensor | Cumulative deviation vs SDM630 |
+|----|--------|-------------------------------|
+| R | TDK 30A | ≈ −0.1% |
+| S | TDK 80A | ≈ +0.3% |
+| T | YHDC 120A | ≈ −0.7% |
+
+All three CTs within ±1% — highly accurate at real-load conditions.
+
+**Key finding:** apparent −4% to −7% deviation seen earlier was an artefact of W-snapshot integration (missing MQTT packets). Correct energy counter method gives ±1%. See errors-history.md.
+
+---
+
+## 11. Known Issues / Observations
+
+- **dkwh quantization:** box firmware reports dkwh at ~1 Wh/min resolution per channel. Causes noise in short windows (≤30 min); averages out over full-day totals.
+- **MQTT sec drop rate:** ~3.5% of per-second packets lost in transit. Irrelevant for energy (uses cal_min dkwh), but reduces sec coverage in cal_sec to ~96.5%.
+- **Instantaneous mismatch:** SDM `ts` in cal_min is ~226ms after box minute. Rapid load changes between the two reads will show a gap in the instantaneous comparison — not a measurement error.
+- **bat_pct reads -1:** Unit D powered by box USB — no battery. Normal.
