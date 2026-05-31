@@ -2,5 +2,7 @@ arduino/EnergyCalibrator/build/
 arduino/EnergyCalibrator/partitions.csv
 collector/cal_data.db
 report/report_*.pdf
+reports/*.pdf
+reports/cron.log
 __pycache__/
 *.pyc
