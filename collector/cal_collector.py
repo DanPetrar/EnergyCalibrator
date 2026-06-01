@@ -235,23 +235,31 @@ def write_loop(conn):
     cur = conn.cursor()
     sec_count = min_count = 0
     t_report = time.time()
+    sec_pending = False        # uncommitted sec rows awaiting the ~1 s flush
+    last_commit = time.time()
 
     while not (_stop.is_set() and Q.empty()):
         try:
             kind, ts, unit, data = Q.get(timeout=1)
         except queue.Empty:
+            if sec_pending:     # idle tick — flush any buffered sec rows
+                conn.commit(); sec_pending = False; last_commit = time.time()
             continue
 
         if kind == 'sec':
             cur.execute(SEC_INSERT, _sec_row(ts, unit, data))
-            conn.commit()
             sec_count += 1
+            sec_pending = True
+            # Batch sec commits to ~1 Hz instead of one fsync per row.
+            if time.time() - last_commit >= 1.0:
+                conn.commit(); sec_pending = False; last_commit = time.time()
             log.debug('[SEC] unit=%s ts=%d R=%.1fV %.3fA', unit, ts,
                       data['R']['v'], data['R']['a'])
 
         elif kind == 'min':
             cur.execute(MIN_INSERT, _min_row(ts, unit, data))
-            conn.commit()
+            conn.commit()       # min rows are the calibration record — commit immediately
+            sec_pending = False; last_commit = time.time()
             min_count += 1
             m = data.get('meter', {})
             log.info('[MIN] unit=%s ts=%d mtr=%.1fV %.3fA %.1fW dkwh=%.4f',
@@ -262,9 +270,15 @@ def write_loop(conn):
             log.info('[STATS] sec=%d  min=%d', sec_count, min_count)
             t_report = now
 
+    if sec_pending:             # final flush on shutdown
+        conn.commit()
+
 # ── main ──────────────────────────────────────────────────────────────────────
 def main():
     conn = sqlite3.connect(DB_PATH)
+    # WAL + relaxed sync: fewer fsyncs per write → less SD-card wear, higher throughput.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     for stmt in SCHEMA.strip().split(';'):
         stmt = stmt.strip()
         if stmt:

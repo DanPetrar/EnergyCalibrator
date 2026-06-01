@@ -1,6 +1,9 @@
 arduino/EnergyCalibrator/build/
 arduino/EnergyCalibrator/partitions.csv
 collector/cal_data.db
+collector/cal_data.db-wal
+collector/cal_data.db-shm
+collector/prune.log
 report/report_*.pdf
 reports/*.pdf
 reports/cron.log
