@@ -45,7 +45,7 @@ the box-vs-SDM comparison is valid.
 
 | ID | Severity | Status | Summary |
 |----|----------|--------|---------|
-| F1 | Moderate | **Latent** | SDM-poll-failure misalignment (see below) |
+| F1 | Moderate | **Fixed (v1.0.3)** | SDM-poll-failure misalignment (see below) |
 | F2 | Low | By design | Reboot/OTA gap dropped from per-minute series, symmetric |
 | F3 | Low | Report-immune | First-sample adds absolute box counter to `cumKwh` |
 | F4 | Info | Not a bug | Dual accumulator is consistent but duplicated |
@@ -64,6 +64,14 @@ failure at ~500 W).
 discard `dKwhThisMin`), or defer advancing `prevCumKwhAtMin` until the row is
 actually published. Not urgent — SDM comms are reliable; verify before relying
 on sub-percent precision during periods with SDM `read err` WARNings.
+
+**RESOLVED in v1.0.3 (2026-06-01):** the per-minute box delta and
+`prevCumKwhAtMin` now advance only inside the successful-publish branch, so a
+skipped minute folds into the next published row symmetrically for both box and
+meter (matching the SDM telescoping). Verified by host model test
+`arduino/tests/test_energy_accumulator.py` (old logic loses the failed minute;
+new logic is aligned + lossless, incl. consecutive failures). Normal path
+unchanged; OTA'd to Unit D, stable, paired rows flowing.
 
 ### F2 — Reboot/OTA gap *(deviation-safe)*
 `prevCumKwhAtMin` and `prevMeterKwh` are loop-static and reset to −1 on boot, so
@@ -120,10 +128,9 @@ Edge cases (F1 poll-failure bias, F2 reboot-gap) are real but either inactive
 today (F1) or deviation-neutral (F2). The reported numbers can be trusted to the
 documented precision.
 
-**Recommendations (optional):**
-1. Fix **F1** before relying on sub-percent precision during SDM-error periods
-   (store box-only minutes, or defer `prevCumKwhAtMin`).
-2. Collapse/​document the **F4** dual accumulator.
+**Recommendations:**
+1. ~~Fix **F1**~~ **Done in v1.0.3** — `prevCumKwhAtMin` deferred to successful publish.
+2. Collapse/​document the **F4** dual accumulator. *(optional)*
 3. Leave **F3/F5** as-is (report-immune / inherent).
 
 **Phase 2 (box-counter ground truth) — not required** for confidence in the

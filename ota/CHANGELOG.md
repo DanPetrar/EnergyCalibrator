@@ -1,5 +1,14 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.3 — 2026-06-01
+
+- Fix F1 (energy audit): on an SDM630 poll failure the skipped minute's box
+  energy was dropped while the meter telescoped it into the next row, biasing
+  box-vs-SDM deviation slightly negative per failure. Now the per-minute box
+  delta + baseline (`prevCumKwhAtMin`) only advance on a successful paired
+  publish, so a skipped minute folds into the next row symmetrically for both
+  box and meter. Normal (no-failure) path unchanged.
+
 ## v1.0.2 — 2026-06-01
 
 - Add task watchdog (esp_task_wdt) on the loop task, 60 s timeout, panic-reset

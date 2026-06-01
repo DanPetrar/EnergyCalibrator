@@ -704,14 +704,6 @@ void loop() {
       parse_min(linebuf, ch);
       Serial.printf("[MIN] %s\n", linebuf);
       if (ch == 2) {
-        // Compute per-minute kWh deltas for each CT
-        for (int i = 0; i < 3; i++) {
-          dKwhThisMin[i] = (prevCumKwhAtMin[i] >= 0.0f)
-                         ? cumKwh[i] - prevCumKwhAtMin[i]
-                         : 0.0f;
-          if (dKwhThisMin[i] < 0.0f) dKwhThisMin[i] = 0.0f;
-          prevCumKwhAtMin[i] = cumKwh[i];
-        }
         minBuf.push(latestMin);
         energyLogAppend(latestMin);
 
@@ -720,10 +712,23 @@ void loop() {
         led_flash(32, 24, 0);  // amber
 
         if (meterOk) {
+          // Compute per-minute box deltas only on a successful poll, and advance
+          // the baseline only here. On a failed poll the baseline is left
+          // unadvanced so this minute's box energy folds into the next published
+          // row — symmetric with the SDM side (prevMeterKwh also only advances on
+          // success), keeping box and meter dkWh over the same interval (fixes F1).
+          for (int i = 0; i < 3; i++) {
+            dKwhThisMin[i] = (prevCumKwhAtMin[i] >= 0.0f)
+                           ? cumKwh[i] - prevCumKwhAtMin[i]
+                           : 0.0f;
+            if (dKwhThisMin[i] < 0.0f) dKwhThisMin[i] = 0.0f;
+            prevCumKwhAtMin[i] = cumKwh[i];
+          }
           mqttPublishPaired(dKwhThisMin);
           led_flash(0, 16, 32);  // teal = paired publish
         } else {
-          // Publish box-only min if meter poll failed
+          // Meter poll failed: emit a box-only marker (collector skips it) and
+          // leave prevCumKwhAtMin unadvanced so this minute merges into the next.
           if (cfg.mqtt_en && mqtt.connected()) {
             String topic = String(cfg.mqtt_topic) + "/min";
             char buf[32];
