@@ -82,10 +82,25 @@ uint32_t     lastFaultsMs       = 0;
 ZaxOtaMeta ZAX_META = { 0x5A415843UL, FW_VERSION, 0, DATA_VERSION,
                         (uint16_t)sizeof(SecRecord), (uint16_t)sizeof(MinRecord), {} };
 
-// Box energy accumulators (same rollover-safe logic as ZaxMonitor)
+// Box energy accumulators (same rollover-safe logic as ZaxMonitor).
+//
+// Two distinct quantities are tracked per channel — NOT a redundant pair:
+//   cumKwh[ch]          — lifetime running total. Each minute parse_min adds
+//                         dKwh = kwh - prevBoxKwh (rollback-safe: a box counter
+//                         reset is detected as dKwh<0 and handled). cumKwh is
+//                         persisted to energyLog, restored on boot, and exposed
+//                         as /api/data total_kwh. Monotonic increasing.
+//   prevCumKwhAtMin[]   — (loop-static, below) the cumKwh value at the LAST
+//                         published row. The per-minute figure sent to MQTT is
+//                         dKwhThisMin = cumKwh - prevCumKwhAtMin = energy pending
+//                         since the last publish.
+// Invariant: prevCumKwhAtMin advances ONLY on a successful paired publish, so a
+// skipped minute (failed SDM poll) folds into the next row (F1), and its -1
+// sentinel makes the first post-boot publish emit 0 to stay symmetric with the
+// SDM side's prevMeterKwh (F2). See Doc/energy-audit.md.
 float cumKwh[3]       = {0, 0, 0};
 float cumKvarh[3]     = {0, 0, 0};
-float prevBoxKwh[3]   = {-1, -1, -1};
+float prevBoxKwh[3]   = {-1, -1, -1};   // last raw box kwh counter, per channel
 float prevBoxKvarh[3] = {-1, -1, -1};
 uint32_t energyStartTs = 0;
 
@@ -681,8 +696,8 @@ void loop() {
   lastDataMs = millis();
 
   static bool chanSeen[3] = {false, false, false};
-  static float dKwhThisMin[3] = {0, 0, 0};
-  static float prevCumKwhAtMin[3] = {-1, -1, -1};
+  static float dKwhThisMin[3] = {0, 0, 0};        // per-publish box delta sent to MQTT
+  static float prevCumKwhAtMin[3] = {-1, -1, -1}; // cumKwh at last publish (-1 = not yet baselined). See globals.
 
   int ft = classify(linebuf);
   switch (ft) {

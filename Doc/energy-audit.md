@@ -48,7 +48,7 @@ the box-vs-SDM comparison is valid.
 | F1 | Moderate | **Fixed (v1.0.3)** | SDM-poll-failure misalignment (see below) |
 | F2 | Low | By design | Reboot/OTA gap dropped from per-minute series, symmetric |
 | F3 | Low | Report-immune | First-sample adds absolute box counter to `cumKwh` |
-| F4 | Info | Not a bug | Dual accumulator is consistent but duplicated |
+| F4 | Info | Documented | Dual accumulator is consistent; roles now commented in source |
 | F5 | Info | Inherent | ~1 Wh/min box quantization → short-window dkWh noise |
 
 ### F1 — SDM-poll-failure misalignment *(latent; 0 occurrences today)*
@@ -130,7 +130,10 @@ documented precision.
 
 **Recommendations:**
 1. ~~Fix **F1**~~ **Done in v1.0.3** — `prevCumKwhAtMin` deferred to successful publish.
-2. Collapse/​document the **F4** dual accumulator. *(optional)*
+2. ~~Collapse/document the **F4** dual accumulator~~ **Documented in source** —
+   a structural collapse was evaluated and rejected (equal complexity, would risk
+   the F1/F2 behavior); the two accumulators' roles + the publish-baseline
+   invariant are now commented at their declaration sites.
 3. Leave **F3/F5** as-is (report-immune / inherent).
 
 **Phase 2 (box-counter ground truth) — not required** for confidence in the
