@@ -146,13 +146,13 @@ def _styles():
     from reportlab.lib import colors
     base = getSampleStyleSheet()
     return {
-        'Title': ParagraphStyle('T', parent=base['Title'], fontSize=16,
-                                textColor=colors.HexColor(COL_DARK), spaceAfter=2),
+        'Title': ParagraphStyle('T', parent=base['Title'], fontSize=15,
+                                textColor=colors.HexColor(COL_DARK), spaceAfter=1),
         'Sub':   ParagraphStyle('Su', parent=base['Normal'], fontSize=8,
                                 textColor=colors.HexColor('#666666')),
         'H2':    ParagraphStyle('H2', parent=base['Heading2'], fontSize=11,
                                 textColor=colors.HexColor(COL_DARK),
-                                spaceBefore=12, spaceAfter=4),
+                                spaceBefore=6, spaceAfter=3),
         'H3':    ParagraphStyle('H3', parent=base['Heading3'], fontSize=9,
                                 textColor=colors.HexColor(COL_MID),
                                 spaceBefore=6, spaceAfter=2),
@@ -171,12 +171,12 @@ def _table(data, col_widths, row_styles=None):
         ('BACKGROUND',    (0, 0), (-1, 0),  colors.HexColor(COL_DARK)),
         ('TEXTCOLOR',     (0, 0), (-1, 0),  colors.white),
         ('FONTNAME',      (0, 0), (-1, 0),  'Helvetica-Bold'),
-        ('FONTSIZE',      (0, 0), (-1, -1), 8),
+        ('FONTSIZE',      (0, 0), (-1, -1), 7.5),
         ('ALIGN',         (0, 0), (-1, -1), 'RIGHT'),
         ('ALIGN',         (0, 0), (0, -1),  'LEFT'),
         ('GRID',          (0, 0), (-1, -1), 0.3, colors.HexColor('#cccccc')),
-        ('TOPPADDING',    (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('TOPPADDING',    (0, 0), (-1, -1), 1.6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 1.6),
         ('LEFTPADDING',   (0, 0), (-1, -1), 5),
         ('RIGHTPADDING',  (0, 0), (-1, -1), 5),
     ]
@@ -221,12 +221,12 @@ def _kpi_row(sdm_kwh, ct_info):
                           subtitle=CT_INFO[ch]))
 
     bgs = [COL_DARK] + [kpi_bg(ct_info[ch]['dev']) for ch in ('R', 'S', 'T')]
-    t = Table([cells], colWidths=[4.15 * cm] * 4, rowHeights=[2.4 * cm])
+    t = Table([cells], colWidths=[4.3 * cm] * 4, rowHeights=[1.75 * cm])
     cmds = [
         ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING',   (0, 0), (-1, -1), 10),
-        ('TOPPADDING',    (0, 0), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING',    (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]
     for i, bg in enumerate(bgs):
         cmds.append(('BACKGROUND', (i, 0), (i, 0), colors.HexColor(bg)))
@@ -247,8 +247,8 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
         print("ERROR: reportlab not installed."); sys.exit(1)
 
     doc = SimpleDocTemplate(out_path, pagesize=A4,
-                            leftMargin=1.8*cm, rightMargin=1.8*cm,
-                            topMargin=1.8*cm, bottomMargin=1.8*cm)
+                            leftMargin=1.5*cm, rightMargin=1.5*cm,
+                            topMargin=1.3*cm, bottomMargin=1.1*cm)
     S = _styles()
     story = []
     ct_footnote = '  ·  '.join(f'CT-{ch}: {CT_INFO[ch]}' for ch in ('R','S','T'))
@@ -266,7 +266,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
             f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")} &nbsp;·&nbsp; '
             f'{len(min_rows)} min records &nbsp;·&nbsp; {len(sec_rows)} sec records',
             S['Sub']),
-        Spacer(1, 0.2*cm), hr(1.0), Spacer(1, 0.2*cm),
+        Spacer(1, 0.08*cm), hr(1.0), Spacer(1, 0.12*cm),
     ]
 
     if not min_rows:
@@ -288,7 +288,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
     # ── Section 1: Day Overview ───────────────────────────────────────────────
     story.append(Paragraph('Day Overview', S['H2']))
     story.append(_kpi_row(sdm_total, ct_info))
-    story.append(Spacer(1, 0.35*cm))
+    story.append(Spacer(1, 0.12*cm))
 
     ranking = sorted(('R','S','T'), key=lambda c: _absdev(ct_dev[c]))
     medals  = ['1st ★', '2nd', '3rd']
@@ -309,7 +309,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
     story.append(_table(rank_tbl,
                         col_widths=[1.5*cm, 1.5*cm, 3.2*cm, 3.2*cm, 2.8*cm, 4.8*cm],
                         row_styles=rank_styles))
-    story.append(Spacer(1, 0.35*cm))
+    story.append(Spacer(1, 0.12*cm))
 
     # ── Section 2: Hourly Summary (energy counters only) ──────────────────────
     # CT dev columns here are per-hour energy-counter deviations (dkWh), not
@@ -351,7 +351,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
                         col_widths=[1.5*cm, 2.7*cm, 2.7*cm,
                                     2.0*cm, 2.0*cm, 2.0*cm, 2.2*cm, 1.9*cm],
                         row_styles=sum_styles))
-    story.append(Spacer(1, 0.4*cm))
+    story.append(Spacer(1, 0.12*cm))
 
     story.append(Paragraph(f'Sensors — {ct_footnote}', S['Sm']))
 
@@ -366,6 +366,10 @@ def main():
     ap.add_argument('--unit', default=None)
     ap.add_argument('--out',  default=None)
     ap.add_argument('--date', default=None, help='YYYY-MM-DD (default: today)')
+    ap.add_argument('--from', dest='frm', default=None,
+                    help='interval start "YYYY-MM-DD HH:MM" or "YYYY-MM-DD"')
+    ap.add_argument('--to',   dest='to',  default=None,
+                    help='interval end "YYYY-MM-DD HH:MM" or "YYYY-MM-DD"')
     ap.add_argument('--all',  action='store_true', help='All data in DB')
     args = ap.parse_args()
 
@@ -380,7 +384,19 @@ def main():
 
     unit_label = args.unit or ', '.join(units)
 
-    if args.all:
+    def _parse_dt(s):
+        for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d'):
+            try: return datetime.strptime(s, fmt)
+            except ValueError: pass
+        sys.exit(f'ERROR: bad datetime {s!r} — use "YYYY-MM-DD HH:MM"')
+
+    if args.frm or args.to:
+        if not (args.frm and args.to):
+            sys.exit('ERROR: --from and --to must be given together')
+        dt_from, dt_to = _parse_dt(args.frm), _parse_dt(args.to)
+        ts_from, ts_to = int(dt_from.timestamp()), int(dt_to.timestamp())
+        period_label = f'{dt_from:%Y-%m-%d %H:%M} – {dt_to:%Y-%m-%d %H:%M}'
+    elif args.all:
         conn = sqlite3.connect(args.db)
         r    = conn.execute("SELECT MIN(ts), MAX(ts) FROM cal_min").fetchone()
         conn.close()
