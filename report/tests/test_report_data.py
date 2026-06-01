@@ -15,7 +15,7 @@ Or under pytest if available:
     pytest report/tests/
 """
 
-import os, sys, sqlite3, tempfile, statistics
+import os, sys, sqlite3, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))   # report/ dir, so we can import the module
@@ -64,29 +64,7 @@ def _min_rows():
     ]
 
 
-# ── tests: aggregation ──────────────────────────────────────────────────────────
-
-def test_sec_aggregate():
-    rows = _sec_rows()
-    agg = gr.sec_aggregate(rows)
-    assert agg['n'] == 3
-    for j, ch in enumerate(CTS):
-        vals = [r[f'{ch}_w'] for r in rows]
-        assert _approx(agg[f'{ch}_w_avg'], statistics.mean(vals))
-        assert _approx(agg[f'{ch}_w_min'], min(vals))
-        assert _approx(agg[f'{ch}_w_max'], max(vals))
-        assert _approx(agg[f'{ch}_w_std'], statistics.stdev(vals))
-    # spot value: R_w avg = 200
-    assert _approx(agg['R_w_avg'], 200.0)
-
-
-def test_min_aggregate():
-    rows = _min_rows()
-    agg = gr.min_aggregate(rows)
-    assert agg['n'] == 2
-    assert _approx(agg['mtr_w_avg'], statistics.mean([300.0, 700.0]))
-    assert _approx(agg['mtr_v_avg'], statistics.mean([230.0, 231.0]))
-
+# ── tests: hourly energy + SDM stats (the surviving report sections) ────────────
 
 def test_min_by_hour_and_energy():
     rows = _min_rows()
@@ -99,21 +77,11 @@ def test_min_by_hour_and_energy():
     assert _approx(en['R'],   0.00505 + 0.01212)
 
 
-def test_load_band_stats():
+def test_hour_sdm_stats():
+    # SDM avg power per hour feeds the Hourly Summary 'SDM630 avg (W)' column.
     rows = _min_rows()
-    bands = gr.load_band_stats(rows)
-    by_label = {b['label']: b for b in bands}
-    # one minute in 200-500, one in 500-1000
-    assert by_label['200 – 500 W']['n'] == 1
-    assert by_label['500 – 1000 W']['n'] == 1
-    # energy deviation per CT is +1% / +2% / -1% in both bands
-    for label in ('200 – 500 W', '500 – 1000 W'):
-        d = by_label[label]['devs']
-        assert _approx(d['R'], 1.0,  tol=1e-6)
-        assert _approx(d['S'], 2.0,  tol=1e-6)
-        assert _approx(d['T'], -1.0, tol=1e-6)
-    # percent-of-time sums to 100 over populated bands
-    assert _approx(sum(b['pct'] for b in bands), 100.0, tol=1e-6)
+    s = gr.hour_sdm_stats(rows)
+    assert _approx(s['mtr_w'], (300.0 + 700.0) / 2)
 
 
 # ── tests: SQL fetch round-trip ─────────────────────────────────────────────────
@@ -156,9 +124,13 @@ def test_fetch_roundtrip():
         sc = gr.fetch_sec_all(path, 'cal_TEST', 1780300000, 1780400000)
         assert len(mn) == 2
         assert len(sc) == 3
-        # fetched rows feed the aggregators cleanly
-        assert gr.min_aggregate(mn)['n'] == 2
-        assert _approx(gr.sec_aggregate(sc)['R_w_avg'], 200.0)
+        # fetched rows feed the surviving report sections
+        assert sum(len(v) for v in gr.min_by_hour(mn).values()) == 2
+        # hourly sec aggregation supplies peak (W max) + coverage (n) for §2
+        by_hour = gr.fetch_sec_by_hour(path, 'cal_TEST', 1780300000, 1780400000)
+        bucket = next(iter(by_hour.values()))
+        assert bucket['n'] == 3
+        assert _approx(bucket['R_w_max'], 300.0)
     finally:
         os.remove(path)
 

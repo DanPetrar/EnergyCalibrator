@@ -12,7 +12,7 @@ Usage:
                              [--date YYYY-MM-DD | --all]
 """
 
-import argparse, sqlite3, os, sys, statistics
+import argparse, sqlite3, os, sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -34,14 +34,6 @@ COL_DKGREEN = '#1d6b3c'
 COL_DKAMBER = '#7a5200'
 COL_DKRED   = '#7a1a1a'
 
-LOAD_BANDS = [
-    (0,    200,  '0 – 200 W'),
-    (200,  500,  '200 – 500 W'),
-    (500,  1000, '500 – 1000 W'),
-    (1000, 1500, '1000 – 1500 W'),
-    (1500, None, '> 1500 W'),
-]
-
 CT_INFO = {
     'R': 'TDK 30A',
     'S': 'TDK 80A',
@@ -62,7 +54,6 @@ def kpi_bg(pct):
 
 
 def _avg(vals): return sum(vals) / len(vals) if vals else None
-def _std(vals): return statistics.stdev(vals) if len(vals) > 1 else 0.0
 
 
 # ── data ──────────────────────────────────────────────────────────────────────
@@ -114,74 +105,6 @@ def fetch_sec_by_hour(db, unit, ts_from, ts_to):
                     s[f'{ch}_{col}_max'] = max(vals)
         out[h] = s
     return out
-
-
-def sec_aggregate(sec_rows):
-    """Compute full-period aggregate stats per CT from cal_sec rows."""
-    d = defaultdict(list)
-    for r in sec_rows:
-        for ch in ('R', 'S', 'T'):
-            for col in ('w', 'v', 'a', 'pf'):
-                v = r[f'{ch}_{col}']
-                if v is not None: d[f'{ch}_{col}'].append(v)
-    out = {'n': len(sec_rows)}
-    for ch in ('R', 'S', 'T'):
-        for col in ('w', 'v', 'a', 'pf'):
-            vals = d[f'{ch}_{col}']
-            if vals:
-                out[f'{ch}_{col}_avg'] = _avg(vals)
-                out[f'{ch}_{col}_min'] = min(vals)
-                out[f'{ch}_{col}_max'] = max(vals)
-                out[f'{ch}_{col}_std'] = _std(vals)
-    return out
-
-
-def min_aggregate(min_rows):
-    """Compute full-period aggregate stats for SDM from cal_min rows."""
-    d = defaultdict(list)
-    for r in min_rows:
-        for col in ('mtr_v', 'mtr_a', 'mtr_w', 'mtr_pf'):
-            v = r[col]
-            if v is not None: d[col].append(v)
-    out = {'n': len(min_rows)}
-    for col in ('mtr_v', 'mtr_a', 'mtr_w', 'mtr_pf'):
-        vals = d[col]
-        if vals:
-            out[f'{col}_avg'] = _avg(vals)
-            out[f'{col}_min'] = min(vals)
-            out[f'{col}_max'] = max(vals)
-            out[f'{col}_std'] = _std(vals)
-    return out
-
-
-def load_band_stats(min_rows):
-    """
-    For each load band (by mtr_w), return:
-      count, pct_of_total, avg dev W% per CT.
-    Uses cal_min R_dev_w_pct / S_dev_w_pct / T_dev_w_pct.
-    """
-    total = len(min_rows)
-    bands = []
-    for lo, hi, label in LOAD_BANDS:
-        subset = [r for r in min_rows
-                  if r['mtr_w'] is not None
-                  and r['mtr_w'] >= lo
-                  and (hi is None or r['mtr_w'] < hi)]
-        n = len(subset)
-        pct = n * 100 / total if total else 0
-        devs = {}
-        for ch in ('R', 'S', 'T'):
-            # energy counter delta: (box_dkwh - sdm_dkwh) / sdm_dkwh per minute
-            vals = [(r[f'{ch}_dkwh'] - r['mtr_dkwh']) / r['mtr_dkwh'] * 100
-                    for r in subset
-                    if r[f'{ch}_dkwh'] is not None and r['mtr_dkwh']]
-            devs[ch] = _avg(vals)
-        avg_w = _avg([r['mtr_w'] for r in subset if r['mtr_w']])
-        bands.append({
-            'label': label, 'n': n, 'pct': pct,
-            'avg_w': avg_w, 'devs': devs,
-        })
-    return bands
 
 
 def min_by_hour(rows):
@@ -381,10 +304,9 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
                         row_styles=rank_styles))
     story.append(Spacer(1, 0.35*cm))
 
-    # ── Section 2: Hourly Summary ─────────────────────────────────────────────
+    # ── Section 2: Hourly Summary (energy counters only) ──────────────────────
     story.append(Paragraph('Hourly Summary', S['H2']))
-    sum_hdr = ['Hour', 'SDM630 avg (W)', 'SDM630 (kWh)',
-               'CT-R dev', 'CT-S dev', 'CT-T dev', 'Peak (W)', 'Cover (%)']
+    sum_hdr = ['Hour', 'SDM630 avg (W)', 'SDM630 (kWh)', 'Peak (W)', 'Cover (%)']
     sum_rows  = [sum_hdr]
     sum_styles = []
     for h in hours:
@@ -392,10 +314,6 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
         sec  = sec_hourly.get(h, {})
         en   = hour_energy(hrs)
         sdms = hour_sdm_stats(hrs)
-        devs = {}
-        for ch in ('R', 'S', 'T'):
-            devs[ch] = (en[ch] - en['SDM']) / en['SDM'] * 100 \
-                       if en['SDM'] and en[ch] else None
         peak = max((sec.get(f'{ch}_w_max', 0) for ch in ('R','S','T')), default=None)
         cov  = int(sec.get('n', 0) * 100 // 3600)
         ri   = len(sum_rows)
@@ -403,132 +321,16 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
             f'{h:02d}:00',
             f'{sdms["mtr_w"]:.0f} W'       if sdms['mtr_w'] else '—',
             f'{en["SDM"]:.4f} kWh',
-            f'{devs["R"]:+.1f}%'           if devs['R'] is not None else '—',
-            f'{devs["S"]:+.1f}%'           if devs['S'] is not None else '—',
-            f'{devs["T"]:+.1f}%'           if devs['T'] is not None else '—',
             f'{peak:.0f} W'                if peak else '—',
             f'{cov}%',
         ])
-        for ci, ch in enumerate(('R','S','T'), start=3):
-            sum_styles.append((ri, ci, dev_bg(devs.get(ch))))
         if cov < 80:
-            sum_styles.append((ri, 7, COL_YELLOW))
+            sum_styles.append((ri, 4, COL_YELLOW))
     story.append(_table(sum_rows,
-                        col_widths=[1.5*cm, 2.7*cm, 2.7*cm,
-                                    2.0*cm, 2.0*cm, 2.0*cm, 2.2*cm, 1.9*cm],
+                        col_widths=[2.0*cm, 3.5*cm, 3.5*cm, 3.0*cm, 2.5*cm],
                         row_styles=sum_styles))
     story.append(Spacer(1, 0.4*cm))
-    story.append(hr())
 
-    # ── Section 3: All-day Seconds Summary ────────────────────────────────────
-    story.append(Paragraph('All-day Measurement Statistics', S['H2']))
-    story.append(Paragraph(
-        f'Computed from {len(sec_rows)} second-resolution samples (CT) '
-        f'and {len(min_rows)} minute-resolution samples (SDM630).',
-        S['Sm']))
-    story.append(Spacer(1, 0.2*cm))
-
-    sec_agg = sec_aggregate(sec_rows)
-    min_agg = min_aggregate(min_rows)
-
-    stat_hdr = ['Source', 'Samples',
-                'Avg V (V)', 'Avg A (A)',
-                'Avg W (W)', 'Std W (W)', 'Avg PF']
-    stat_rows  = [stat_hdr]
-    stat_styles = []
-
-    sdm_v_avg  = min_agg.get('mtr_v_avg')
-    sdm_a_avg  = min_agg.get('mtr_a_avg')
-    sdm_w_avg  = min_agg.get('mtr_w_avg')
-    sdm_w_std  = min_agg.get('mtr_w_std')
-    sdm_pf_avg = min_agg.get('mtr_pf_avg')
-
-    # SDM630 reference row — no deviation
-    stat_rows.append([
-        'SDM630 (ref)',
-        f'{min_agg["n"]} min',
-        f'{sdm_v_avg:.1f}'  if sdm_v_avg  else '—',
-        f'{sdm_a_avg:.3f}'  if sdm_a_avg  else '—',
-        f'{sdm_w_avg:.1f}'  if sdm_w_avg  else '—',
-        f'{sdm_w_std:.1f}'  if sdm_w_std  else '—',
-        f'{sdm_pf_avg:.3f}' if sdm_pf_avg else '—',
-    ])
-
-    def _dv(ct_val, ref_val):
-        if ct_val and ref_val:
-            return (ct_val - ref_val) / ref_val * 100
-        return None
-
-    def _cell(val, dv, fmt):
-        if val is None: return '—'
-        s = fmt.format(val)
-        return f'{s} ({dv:+.2f}%)' if dv is not None else s
-
-    for ch in ('R', 'S', 'T'):
-        ri = len(stat_rows)
-        ct_v  = sec_agg.get(f'{ch}_v_avg')
-        ct_a  = sec_agg.get(f'{ch}_a_avg')
-        ct_w  = sec_agg.get(f'{ch}_w_avg')
-        ct_std = sec_agg.get(f'{ch}_w_std')
-        ct_pf = sec_agg.get(f'{ch}_pf_avg')
-
-        dv_v  = _dv(ct_v,  sdm_v_avg)
-        dv_a  = _dv(ct_a,  sdm_a_avg)
-        dv_w  = ct_dev[ch]          # energy counter: sum(X_dkwh) vs sum(mtr_dkwh)
-        dv_pf = _dv(ct_pf, sdm_pf_avg)
-
-        stat_rows.append([
-            f'CT-{ch}',
-            f'{sec_agg["n"]} sec',
-            _cell(ct_v,  dv_v,  '{:.1f}'),
-            _cell(ct_a,  dv_a,  '{:.3f}'),
-            _cell(ct_w,  dv_w,  '{:.1f}'),
-            f'{ct_std:.1f}' if ct_std else '—',
-            _cell(ct_pf, dv_pf, '{:.3f}'),
-        ])
-        # colour each measured parameter by its deviation
-        for ci, dv in zip([2, 3, 4, 6], [dv_v, dv_a, dv_w, dv_pf]):
-            if dv is not None:
-                stat_styles.append((ri, ci, dev_bg(dv)))
-
-    story.append(_table(stat_rows,
-                        col_widths=[2.0*cm, 1.7*cm, 3.0*cm, 3.0*cm,
-                                    3.0*cm, 1.6*cm, 2.7*cm],
-                        row_styles=stat_styles))
-    story.append(Spacer(1, 0.4*cm))
-
-    # ── Section 4: Load Band Deviation ────────────────────────────────────────
-    story.append(Paragraph('Deviation by Load Band', S['H2']))
-    story.append(Paragraph(
-        'Each band shows what fraction of the day the load was in that range '
-        'and the mean active-power deviation of each CT vs SDM630. '
-        'Higher load → lower deviation is expected for current transformers.',
-        S['Sm']))
-    story.append(Spacer(1, 0.2*cm))
-
-    bands = load_band_stats(min_rows)
-    band_hdr = ['Load band', 'Minutes', 'Time (%)',
-                'Avg SDM W (W)', 'CT-R dev', 'CT-S dev', 'CT-T dev']
-    band_rows  = [band_hdr]
-    band_styles = []
-    for b in bands:
-        ri = len(band_rows)
-        band_rows.append([
-            b['label'],
-            str(b['n']),
-            f'{b["pct"]:.1f}%',
-            f'{b["avg_w"]:.0f}' if b['avg_w'] else '—',
-            f'{b["devs"]["R"]:+.1f}%' if b['devs']['R'] is not None else '—',
-            f'{b["devs"]["S"]:+.1f}%' if b['devs']['S'] is not None else '—',
-            f'{b["devs"]["T"]:+.1f}%' if b['devs']['T'] is not None else '—',
-        ])
-        for ci, ch in enumerate(('R','S','T'), start=4):
-            band_styles.append((ri, ci, dev_bg(b['devs'].get(ch))))
-
-    story.append(_table(band_rows,
-                        col_widths=[3.0*cm, 2.0*cm, 2.0*cm,
-                                    3.0*cm, 2.3*cm, 2.3*cm, 2.4*cm],
-                        row_styles=band_styles))
     story.append(Paragraph(f'Sensors — {ct_footnote}', S['Sm']))
 
     doc.build(story)
