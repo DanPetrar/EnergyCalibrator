@@ -52,3 +52,44 @@ Append one entry per non-trivial debugging session.
 **Root cause:** The ESP32 WebServer upload handler (`handleOtaUpload`) is only triggered by `multipart/form-data` requests. Raw `application/octet-stream` body is not routed through the upload callbacks, so `_otaMetaOk` stays false and `Update.end(false)` aborts the flash — but the device still rebooted (from `Update.begin` or another cause), silently keeping old firmware.
 
 **Fix:** Use `curl -F "firmware=@file.bin;type=application/octet-stream"` (multipart). This matches the web UI's `FormData` upload behaviour.
+
+---
+
+### 2026-06-01 — Report mislabels a perfect CT (0.00%) as "Needs calibration"
+
+**Symptom:** In a PDF report, CT-S showed deviation `+0.00%` but assessment
+"Needs calibration" and was ranked last — the opposite of correct (0% is the
+best result).
+
+**Root cause:** The ranking/assessment used `abs(d or 999)` to substitute `999`
+when the deviation was `None`. But in Python `0.0` is falsy, so `0.0 or 999`
+evaluates to `999` → `abs(999)=999` ≥ 6% → "Needs calibration", and the sort key
+became 999 so the best CT sorted worst. The displayed number still rendered
+`+0.00%`.
+
+**Fix:** Module-level `_absdev(d) = abs(d) if d is not None else 999`, used for
+both ranking and assessment; also fixed the analogous `en['SDM'] and en[ch]`
+guard on the Hourly dev. Regression test `test_absdev_exact_zero_is_best`.
+
+**Rule:** never use `x or default` / `a and b` to default or guard a numeric
+that can legitimately be 0 — see also the bash `${1:-{}}` JSON trap.
+
+---
+
+### 2026-06-01 — SDM-poll-failure energy misalignment (audit finding F1)
+
+**Symptom:** Found during the firmware dkWh accumulation audit (not a field
+failure). On an SDM630 poll failure the paired row isn't published, but
+`prevCumKwhAtMin` was advanced every minute regardless — so the skipped minute's
+box energy was dropped while the meter telescoped it into the next row, pairing
+1 min of box vs 2 min of SDM and biasing box-vs-SDM deviation slightly negative
+per failure.
+
+**Root cause:** the per-minute box delta + baseline advanced *before* the poll
+result was known, unconditionally.
+
+**Fix (v1.0.3):** compute the box delta and advance `prevCumKwhAtMin` only inside
+the successful-publish branch. A skipped minute now folds into the next published
+row symmetrically with the meter (`prevMeterKwh` likewise advances only on
+success). Verified by host model test `arduino/tests/test_energy_accumulator.py`.
+See `energy-audit.md`.

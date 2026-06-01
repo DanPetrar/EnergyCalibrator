@@ -1,8 +1,12 @@
 # EnergyCalibrator — Project Specification
 
-**Version:** 1.1 (2026-05-31)  
-**Firmware:** v1.0.1  
+**Version:** 1.2 (2026-06-01)  
+**Firmware:** v1.0.3  
 **Status:** Operational — real-load calibration session active
+
+> Firmware energy accounting has been audited end-to-end; see
+> [`energy-audit.md`](energy-audit.md). All findings are closed (F1 fixed in
+> v1.0.3, rest documented as benign/inherent).
 
 ---
 
@@ -77,14 +81,32 @@ Sends per-second and per-minute serial frames on GPIO5 (115200 8N1) for channels
 
 | File | Role |
 |------|------|
-| `Config.h` | Version, NVS key, buffer sizes, fault thresholds |
-| `EnergyCalibrator.ino` | Main loop, SDM630 poll, box serial parser, MQTT publish |
+| `Config.h` | Version, NVS key, buffer sizes, fault thresholds, record structs |
+| `EnergyCalibrator.ino` | Main loop, SDM630 poll, box serial parser, MQTT publish, task watchdog |
 | `WebUI.h` | Embedded web server, all HTTP routes, OTA handler |
+
+**Shared modules** live in the **ZaxCommon** Arduino library
+(`~/Arduino/libraries/ZaxCommon`, github.com/DanPetrar/ZaxCommon), included via
+`<…>` and shared with ZaxMonitor so a fix is made once:
+
+| Module | Role |
+|--------|------|
 | `EnergyLog.h` | LittleFS energy record storage |
 | `ErrorLog.h` | Error/warning log with NVS persistence |
 | `FaultMonitor.h` | Per-phase fault detection and MQTT alerting |
 | `RingBuf.h` | PSRAM ring buffer (SecRecord, MinRecord) |
 | `Snapshot.h` | Power-loss snapshot save/restore |
+
+These require the sketch's `Config.h` (macro-guarded, **not** `#pragma once`) to
+define `SecRecord`/`MinRecord`/`DATA_VERSION`/`ZaxConfig` first.
+
+### 3.1a Firmware revisions
+
+| Version | Change |
+|---------|--------|
+| v1.0.1 | SDM630 inter-read 100 ms delay; `/api/sdm` endpoint |
+| v1.0.2 | Task watchdog (esp_task_wdt, 60 s, panic-reset) on the loop task; fed per-chunk during OTA upload |
+| v1.0.3 | Fix F1 energy-audit finding — per-minute box delta + baseline advance only on a successful SDM-paired publish (a skipped minute folds into the next row symmetrically with the meter) |
 
 ### 3.2 Data Flow
 
@@ -126,9 +148,12 @@ Box serial (UART1, GPIO5)
 
 ### 3.5 OTA Procedure
 
+Requires the **ZaxCommon** library in `~/Arduino/libraries/` (the build scripts
+fail early with install instructions if it is missing).
+
 ```bash
-# Build
-SKIP_SMOKE=1 bash arduino/build_lilygo.sh /dev/ttyACM<N>
+# Build (compiles + flashes over USB + smoke test)
+bash arduino/build_lilygo.sh /dev/ttyACM<N>
 
 # Push OTA — MUST use -F (multipart), NOT --data-binary
 curl -X POST http://192.168.110.104/api/ota \
@@ -143,9 +168,14 @@ Unit D reboots on success (~30s). Verify with `curl http://192.168.110.104/api/s
 
 **File:** `collector/cal_collector.py`  
 **Service:** `collector/cal_collector.service` (systemd, auto-starts on boot)  
-**DB:** `collector/cal_data.db` (SQLite)  
+**DB:** `collector/cal_data.db` (SQLite, `journal_mode=WAL`, `synchronous=NORMAL`; `sec` commits batched ~1 Hz, `min` committed immediately)  
 **Broker:** 192.168.110.225:1883  
 **Subscribes:** `+/sec`, `+/min` (filters `cal_` prefix in handler)
+
+**Retention:** `collector/prune.py` rolls `cal_sec` rows older than 10 days into
+`cal_sec_hourly` (avg/min/max W/V/A/PF per CT per hour) then deletes the raw
+rows; `cal_min` is kept indefinitely. Cron: `--apply` Mon–Sat 00:30,
+`--apply --vacuum` Sun 00:30.
 
 ### DB Schema
 
@@ -155,7 +185,10 @@ Unit D reboots on success (~30s). Verify with `curl http://192.168.110.104/api/s
 **`cal_min`** — paired box + meter + deviations  
 `ts, unit, mtr_v/a/w/pf/hz/dkwh, R/S/T_v/a/w/pf/hz, R/S/T_dkwh, R/S/T_dev_v/a/w/pf/dkwh_abs/pct`
 
-Note: `ts` = `latestMeter.ts` (SDM read completion). `R/S/T_dkwh` = box firmware energy accumulator delta. `mtr_dkwh` = SDM kWh register delta.
+**`cal_sec_hourly`** — hourly rollup of aged-out `cal_sec` rows (see Retention)  
+`hour_ts, unit, n, {R,S,T}_{w,v,a,pf}_{avg,min,max}`
+
+Note: `ts` = `latestMeter.ts` (SDM read completion). `R/S/T_dkwh` = box firmware energy accumulator delta. `mtr_dkwh` = SDM kWh register delta. On an SDM poll failure the box minute folds into the next paired row (v1.0.3, finding F1).
 
 ### Start collector as service
 
@@ -203,13 +236,21 @@ W-snapshot averaging (`sum(W_sec)/3_600_000`) is NOT used for energy — it unde
 
 ### Report layout
 
-1. **Day Overview** — KPI boxes (SDM + CT-R/S/T with sensor model) and CT ranking table
-2. **Hourly Summary** — one row per hour: SDM avg W, SDM kWh, CT-R/S/T energy deviation (colour coded green/yellow/red), peak W, coverage %
-3. **All-day Measurement Statistics** — avg V/A/W/PF with deviation % per CT vs SDM (from 1 Hz cal_sec samples), std W
-4. **Deviation by Load Band** — 5 bands (0–200, 200–500, 500–1000, 1000–1500, >1500 W); per-minute energy counter deviation `(X_dkwh − mtr_dkwh) / mtr_dkwh` averaged per band
-5. **Sensor footnote** — CT-R: TDK 30A · CT-S: TDK 80A · CT-T: YHDC 120A
+Energy-counter (dkWh) views only — the snapshot-based comparison sections were
+removed (2026-06-01) because they mix CT per-second and SDM per-minute snapshots
+and can produce misleading percentages:
 
-Deviation thresholds: green < 3%, yellow 3–6%, red > 6%.
+1. **Day Overview** — KPI boxes (SDM + CT-R/S/T with sensor model) and CT ranking table (ranked by absolute energy deviation; assessment Best/Good/Needs-calibration)
+2. **Hourly Summary** — one row per hour: SDM avg W, SDM kWh, CT-R/S/T energy deviation (colour coded), peak W, coverage %. *(CT dev here is per-hour `dkwh`, not a snapshot comparison — retained.)*
+3. **Sensor footnote** — CT-R: TDK 30A · CT-S: TDK 80A · CT-T: YHDC 120A
+
+**Removed:** ~~All-day Measurement Statistics~~ and ~~Deviation by Load Band~~
+(snapshot-based; can be reintroduced with a corrected methodology later).
+
+Deviation thresholds: green < 3%, yellow 3–6%, red > 6%. Ranking/assessment use
+an explicit None-check (`abs(d) if d is not None else 999`) — **never** the
+falsy `d or 999`, which would mis-flag an exact 0.00% deviation. Data-layer
+regression tests: `report/tests/test_report_data.py`.
 
 ---
 
