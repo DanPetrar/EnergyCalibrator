@@ -10,11 +10,11 @@
 #include <time.h>
 #include "esp_task_wdt.h"
 #include "Config.h"
-#include "RingBuf.h"
-#include "EnergyLog.h"
-#include "ErrorLog.h"
-#include "FaultMonitor.h"
-#include "Snapshot.h"
+#include <RingBuf.h>
+#include <EnergyLog.h>
+#include <ErrorLog.h>
+#include <FaultMonitor.h>
+#include <Snapshot.h>
 #include "WebUI.h"
 
 // LilyGO T7 S3 only — EnergyCalibrator runs exclusively on this board

@@ -6,6 +6,14 @@
 PORT="${1:-/dev/ttyACM0}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKETCH="${SCRIPT_DIR}/EnergyCalibrator/EnergyCalibrator.ino"
+
+# Shared firmware modules live in the ZaxCommon library, not in the sketch.
+if [ ! -d "${HOME}/Arduino/libraries/ZaxCommon/src" ]; then
+  echo "ERROR: ZaxCommon library not found in ~/Arduino/libraries/."
+  echo "Install: git clone git@github.com:DanPetrar/ZaxCommon.git ~/Arduino/libraries/ZaxCommon"
+  exit 1
+fi
+
 BUILD_DIR="/tmp/arduino_build_EnergyCalibrator_lilygo"
 CORE_PARTS_DIR="${HOME}/.arduino15/packages/esp32/hardware/esp32/3.3.7/tools/partitions"
 CSV_SRC="${SCRIPT_DIR}/partitions_16MB.csv"

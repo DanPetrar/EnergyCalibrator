@@ -7,7 +7,7 @@
 #include <time.h>
 #include "esp_task_wdt.h"
 #include "Config.h"
-#include "RingBuf.h"
+#include <RingBuf.h>
 
 // ── globals from EnergyCalibrator.ino ────────────────────────────────────────
 extern WebServer    server;

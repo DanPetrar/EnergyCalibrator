@@ -1,4 +1,8 @@
-#pragma once
+// Macro include guard (not #pragma once): this header is reached via two
+// different paths — the sketch and the ZaxCommon library headers — and
+// #pragma once dedupes by file path, which would let the structs be defined twice.
+#ifndef ZAX_CONFIG_H
+#define ZAX_CONFIG_H
 #include <Arduino.h>
 #include <Preferences.h>
 
@@ -192,3 +196,5 @@ static void saveStaIp(const char* ip) {
   p.putString("sta_ip", ip);
   p.end();
 }
+
+#endif // ZAX_CONFIG_H
