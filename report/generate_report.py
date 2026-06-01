@@ -305,8 +305,11 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
     story.append(Spacer(1, 0.35*cm))
 
     # ── Section 2: Hourly Summary (energy counters only) ──────────────────────
+    # CT dev columns here are per-hour energy-counter deviations (dkWh), not
+    # snapshot comparisons — they stay.
     story.append(Paragraph('Hourly Summary', S['H2']))
-    sum_hdr = ['Hour', 'SDM630 avg (W)', 'SDM630 (kWh)', 'Peak (W)', 'Cover (%)']
+    sum_hdr = ['Hour', 'SDM630 avg (W)', 'SDM630 (kWh)',
+               'CT-R dev', 'CT-S dev', 'CT-T dev', 'Peak (W)', 'Cover (%)']
     sum_rows  = [sum_hdr]
     sum_styles = []
     for h in hours:
@@ -314,6 +317,10 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
         sec  = sec_hourly.get(h, {})
         en   = hour_energy(hrs)
         sdms = hour_sdm_stats(hrs)
+        devs = {}
+        for ch in ('R', 'S', 'T'):
+            devs[ch] = (en[ch] - en['SDM']) / en['SDM'] * 100 \
+                       if en['SDM'] and en[ch] else None
         peak = max((sec.get(f'{ch}_w_max', 0) for ch in ('R','S','T')), default=None)
         cov  = int(sec.get('n', 0) * 100 // 3600)
         ri   = len(sum_rows)
@@ -321,13 +328,19 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
             f'{h:02d}:00',
             f'{sdms["mtr_w"]:.0f} W'       if sdms['mtr_w'] else '—',
             f'{en["SDM"]:.4f} kWh',
+            f'{devs["R"]:+.1f}%'           if devs['R'] is not None else '—',
+            f'{devs["S"]:+.1f}%'           if devs['S'] is not None else '—',
+            f'{devs["T"]:+.1f}%'           if devs['T'] is not None else '—',
             f'{peak:.0f} W'                if peak else '—',
             f'{cov}%',
         ])
+        for ci, ch in enumerate(('R','S','T'), start=3):
+            sum_styles.append((ri, ci, dev_bg(devs.get(ch))))
         if cov < 80:
-            sum_styles.append((ri, 4, COL_YELLOW))
+            sum_styles.append((ri, 7, COL_YELLOW))
     story.append(_table(sum_rows,
-                        col_widths=[2.0*cm, 3.5*cm, 3.5*cm, 3.0*cm, 2.5*cm],
+                        col_widths=[1.5*cm, 2.7*cm, 2.7*cm,
+                                    2.0*cm, 2.0*cm, 2.0*cm, 2.2*cm, 1.9*cm],
                         row_styles=sum_styles))
     story.append(Spacer(1, 0.4*cm))
 
