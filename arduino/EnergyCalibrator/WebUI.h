@@ -5,6 +5,7 @@
 #include <PubSubClient.h>
 #include <Update.h>
 #include <time.h>
+#include "esp_task_wdt.h"
 #include "Config.h"
 #include "RingBuf.h"
 
@@ -1376,6 +1377,9 @@ static void handleOtaUpload() {
   static bool     _checked = false;
 
   HTTPUpload& up = server.upload();
+
+  // loop() is stalled for the whole upload, so feed the watchdog per chunk.
+  esp_task_wdt_reset();
 
   if (up.status == UPLOAD_FILE_START) {
     _otaMetaOk = false; _otaErr[0] = '\0';

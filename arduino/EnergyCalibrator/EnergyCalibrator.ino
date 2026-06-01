@@ -8,6 +8,7 @@
 #include <LittleFS.h>
 #include <ModbusMaster.h>
 #include <time.h>
+#include "esp_task_wdt.h"
 #include "Config.h"
 #include "RingBuf.h"
 #include "EnergyLog.h"
@@ -25,6 +26,7 @@
 #define SDM_TX_PIN   16     // UART2 TX → RS485 module TX
 
 #define LED_COUNT     1
+#define WDT_TIMEOUT_S 60     // task watchdog budget (loop must reset within this)
 #define BOX_BAUD      115200
 #define SDM_BAUD      9600
 #define BOOT_GRACE_MS 30000UL
@@ -560,11 +562,23 @@ void setup() {
   server.begin();
   mqttConnect();
 
+  // Task watchdog: arm after the blocking WiFi/MQTT init so those can't trip it.
+  // OTA upload feeds it per-chunk (see handleOtaUpload) since loop() is stalled then.
+  esp_task_wdt_config_t wdtCfg = {};
+  wdtCfg.timeout_ms     = WDT_TIMEOUT_S * 1000;
+  wdtCfg.idle_core_mask = 0;          // watch the loop task explicitly, not idle tasks
+  wdtCfg.trigger_panic  = true;
+  if (esp_task_wdt_reconfigure(&wdtCfg) != ESP_OK) esp_task_wdt_init(&wdtCfg);
+  esp_task_wdt_add(NULL);             // subscribe the loop/setup task
+  esp_task_wdt_reset();
+  Serial.printf("[WDT] Task watchdog armed: %ds\n", WDT_TIMEOUT_S);
+
   Serial.printf("[BOOT] AP=%s  STA=%s  PASS=%s\n", apSSID.c_str(), cfg.sta_ip, AP_PASS);
   ledIdle();
 }
 
 void loop() {
+  esp_task_wdt_reset();
   server.handleClient();
 
   if (gWifiReconnect)  { gWifiReconnect = false;  wifiReconnect(); ntpSetup(); }

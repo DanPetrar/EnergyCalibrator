@@ -1,5 +1,13 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.2 — 2026-06-01
+
+- Add task watchdog (esp_task_wdt) on the loop task, 60 s timeout, panic-reset
+  on hang — auto-recovers a wedged Modbus/WiFi/MQTT call (Unit D is OTA-only,
+  so a silent hang previously needed a physical trip)
+- Feed the watchdog per chunk during OTA upload (loop is stalled for the whole
+  transfer) so flashing a large .bin can never trip the WDT mid-write
+
 ## v1.0.1 — 2026-05-31
 
 - Fix SDM630 consecutive read timeout: add 100ms delay between read1 and read2
