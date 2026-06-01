@@ -77,6 +77,17 @@ def test_min_by_hour_and_energy():
     assert _approx(en['R'],   0.00505 + 0.01212)
 
 
+def test_absdev_exact_zero_is_best():
+    # Regression: an exact 0.0% deviation must rank best, not be treated as
+    # falsy (the old `d or 999` bug flagged a perfect CT as "Needs calibration").
+    assert gr._absdev(0.0) == 0.0
+    assert gr._absdev(-2.5) == 2.5
+    assert gr._absdev(None) == 999
+    # a perfect CT sorts ahead of a worse one
+    devs = {'R': -1.2, 'S': 0.0, 'T': -3.5}
+    assert sorted(('R', 'S', 'T'), key=lambda c: gr._absdev(devs[c]))[0] == 'S'
+
+
 def test_hour_sdm_stats():
     # SDM avg power per hour feeds the Hourly Summary 'SDM630 avg (W)' column.
     rows = _min_rows()

@@ -56,6 +56,13 @@ def kpi_bg(pct):
 def _avg(vals): return sum(vals) / len(vals) if vals else None
 
 
+def _absdev(d):
+    """abs deviation for ranking/assessment; None (no data) sorts worst.
+    Explicit None check — `d or 999` would treat an exact 0.0% as falsy and
+    substitute 999, mis-flagging a perfect CT as 'Needs calibration'."""
+    return abs(d) if d is not None else 999
+
+
 # ── data ──────────────────────────────────────────────────────────────────────
 
 def fetch_min(db, unit, ts_from, ts_to):
@@ -283,15 +290,15 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
     story.append(_kpi_row(sdm_total, ct_info))
     story.append(Spacer(1, 0.35*cm))
 
-    ranking = sorted(('R','S','T'), key=lambda c: abs(ct_dev[c] or 999))
+    ranking = sorted(('R','S','T'), key=lambda c: _absdev(ct_dev[c]))
     medals  = ['1st ★', '2nd', '3rd']
     rank_tbl = [['Rank', 'CT', 'Total energy (kWh)', 'Deviation vs SDM630',
                  'Mean load (W)', 'Assessment']]
     rank_styles = []
     for i, ch in enumerate(ranking):
         d = ct_dev[ch]
-        asmnt = ('Best accuracy'   if abs(d or 999) < THR_GREEN  else
-                 'Good accuracy'   if abs(d or 999) < THR_YELLOW else
+        asmnt = ('Best accuracy'   if _absdev(d) < THR_GREEN  else
+                 'Good accuracy'   if _absdev(d) < THR_YELLOW else
                  'Needs calibration')
         rank_tbl.append([medals[i], f'CT-{ch}',
                          f'{ct_kwh[ch]:.4f} kWh',
@@ -319,8 +326,10 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
         sdms = hour_sdm_stats(hrs)
         devs = {}
         for ch in ('R', 'S', 'T'):
+            # guard divide-by-zero on the SDM total only; en[ch] may legitimately
+            # be 0.0 (a CT reading no energy that hour → a real deviation).
             devs[ch] = (en[ch] - en['SDM']) / en['SDM'] * 100 \
-                       if en['SDM'] and en[ch] else None
+                       if en['SDM'] else None
         peak = max((sec.get(f'{ch}_w_max', 0) for ch in ('R','S','T')), default=None)
         cov  = int(sec.get('n', 0) * 100 // 3600)
         ri   = len(sum_rows)
