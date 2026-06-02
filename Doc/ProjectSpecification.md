@@ -164,12 +164,22 @@ Unit D reboots on success (~30s). Verify with `curl http://192.168.110.104/api/s
 
 ---
 
-## 4. Collector (Pi-side)
+## 4. Collector
+
+> **Deployment (since 2026-06-02):** the backend (collector + reports + crons +
+> the InfluxDB/Grafana feed) was migrated off the Raspberry Pi onto the **I3
+> Workstation** (`192.168.110.11`, user `dan-linux`). It runs there from
+> `/workspace/projects/EnergyCalibrator`, against DB
+> `/workspace/cal-data/cal_data.db`, using the venv
+> `/workspace/projects/EnergyCalibrator/.venv/bin/python3`. Unit D publishes to
+> the Workstation broker (`mqtt_host=192.168.110.11`). The Pi bench services are
+> disabled and the old Pi DB is archived. Firmware build/flash still happens on
+> the Pi (USB). See the `DanPetrar/Workstation` repo for the migration runbook.
 
 **File:** `collector/cal_collector.py`  
-**Service:** `collector/cal_collector.service` (systemd, auto-starts on boot)  
-**DB:** `collector/cal_data.db` (SQLite, `journal_mode=WAL`, `synchronous=NORMAL`; `sec` commits batched ~1 Hz, `min` committed immediately)  
-**Broker:** 192.168.110.225:1883  
+**Service:** systemd `cal_collector.service` on the Workstation (auto-starts on boot)  
+**DB:** `/workspace/cal-data/cal_data.db` (SQLite, `journal_mode=WAL`, `synchronous=NORMAL`; `sec` commits batched ~1 Hz, `min` committed immediately). Path set via `CAL_DB` env.  
+**Broker:** `127.0.0.1:1883` (the Workstation's local Mosquitto; set via `CAL_MQTT_HOST`)  
 **Subscribes:** `+/sec`, `+/min` (filters `cal_` prefix in handler)
 
 **Retention:** `collector/prune.py` rolls `cal_sec` rows older than 10 days into
@@ -219,7 +229,7 @@ Prints a 30-min snapshot to the terminal:
 ## 6. Report Generator
 
 **File:** `report/generate_report.py`  
-**Requires:** `pip3 install reportlab` (installed on Pi)  
+**Requires:** `reportlab` — installed in the Workstation venv (`/workspace/projects/EnergyCalibrator/.venv`)  
 **Usage:**
 ```bash
 python3 report/generate_report.py --date YYYY-MM-DD --unit cal_F07F8C
@@ -257,24 +267,44 @@ regression tests: `report/tests/test_report_data.py`.
 ## 7. Daily Report Delivery
 
 **Script:** `report/daily_report.sh`  
-**Cron:** `5 0 * * *` — generates report for previous calendar day automatically  
-**Output:** `/home/pi/EnergyCalibrator/reports/report_YYYYMMDD_HHMMSS.pdf`  
+**Cron:** `5 0 * * *` (in the Workstation `dan-linux` crontab) — generates report for previous calendar day automatically. On the Workstation the cron runs `/workspace/cal-data/ws_daily_report.sh`, a thin wrapper that calls `generate_report.py --db /workspace/cal-data/cal_data.db` with the venv python.  
+**Output:** `/workspace/projects/EnergyCalibrator/reports/report_YYYYMMDD_HHMMSS.pdf`  
 **Log:** `reports/cron.log`
 
 ### Report web server
 
 **File:** `reports/serve.py`  
-**Service:** `reports/cal_reports.service` (systemd, port 8080, auto-starts)  
-**URL:** http://192.168.110.225:8080/  
+**Service:** systemd `cal_reports.service` on the Workstation (port 8080, auto-starts)  
+**URL:** http://192.168.110.11:8080/  
 
 Lists all available PDFs with download links. New reports appear automatically.
+(Serves/lists only — generation is via the cron or `generate_report.py`.)
 
-```bash
-# Install service (already done)
-sudo cp reports/cal_reports.service /etc/systemd/system/
-sudo systemctl enable cal_reports
-sudo systemctl start cal_reports
-```
+---
+
+## 7b. Live feed — InfluxDB + Grafana (Workstation)
+
+A separate parser streams the bench MQTT into InfluxDB so Grafana shows live
+bench health alongside the daily PDFs.
+
+**Parser:** `infrastructure/cal_parser.py` (in the `DanPetrar/Workstation` repo),
+deployed on the Workstation as systemd `cal-parser.service` →
+`/opt/cal-parser/cal_parser.py` (venv python). Subscribes the local broker
+`cal_F07F8C/#`; writes InfluxDB bucket `zaxenergy` (org `zax`):
+
+| Measurement | Source | Tags | Fields |
+|-------------|--------|------|--------|
+| `power`     | `sec` (76-byte) | unit, phase | v, a, w, hz, pf |
+| `cal_meter` | `min`.meter (SDM630) | unit | v, a, w, pf, hz, dkwh |
+| `cal_box`   | `min`.box | unit, phase | w, dkwh |
+| `cal_dev`   | `min`.dev | unit, phase | w_pct, dkwh_pct |
+
+`unit` tag is the stable MQTT id `cal_F07F8C` (the device-under-test name is
+tracked separately, not in the tag).
+
+**Grafana dashboard:** "Bench - calibration" (uid `bench-calib`) →
+http://192.168.110.11:3000/d/bench-calib/ — box CT W vs SDM, power deviation %,
+energy deviation %, live SDM stats.
 
 ---
 

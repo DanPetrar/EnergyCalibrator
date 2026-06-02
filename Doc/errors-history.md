@@ -93,3 +93,16 @@ the successful-publish branch. A skipped minute now folds into the next publishe
 row symmetrically with the meter (`prevMeterKwh` likewise advances only on
 success). Verified by host model test `arduino/tests/test_energy_accumulator.py`.
 See `energy-audit.md`.
+
+---
+
+### 2026-06-02 — Pi→Workstation migration: operational gotchas
+
+**Context:** migrated the bench backend (collector + reports + crons + new InfluxDB/Grafana feed) from the Pi to the Workstation, data-safe (parallel-run → verify → cutover). Several non-obvious traps surfaced:
+
+- **`ssh-copy-id` silently failed.** The Pi key never landed in the Workstation's `authorized_keys` despite the user running it twice; key auth kept returning `Permission denied (publickey)`. Verbose SSH showed the key *was* offered and *rejected* server-side → it was missing, not a perms issue. Fix: append the key directly.
+- **`pgrep -f cal_collector.py` self-matches over SSH.** A guard like `pgrep -f cal_collector.py` matches the remote shell running the command string itself (the pattern is literally in argv), giving false "already running". Use `pgrep -x python3` + check `/proc/<pid>/cmdline` instead.
+- **`cal_sec_hourly` doesn't exist on a fresh DB.** The collector only creates `cal_sec`/`cal_min`; `cal_sec_hourly` is created by `prune.py` on first run. A merge that referenced it while a snapshot was ATTACHed silently resolved to the *attached* DB's table (SQLite unqualified-name resolution searches main → attached), so it was never created in the main DB. Guard table ops with a `sqlite_master` existence check.
+- **DB looked 33 MB after deleting 89% of rows + VACUUM.** The size was uncheckpointed WAL. `PRAGMA wal_checkpoint(TRUNCATE)` then `VACUUM` brought the main file to 3.4 MB.
+
+**No data lost:** Unit D buffers/replays on broker switch, and `INSERT OR REPLACE` (PK `ts,unit`) makes reconciliation merges idempotent. A final VACUUM-INTO snapshot+merge swept the switch-window seconds.

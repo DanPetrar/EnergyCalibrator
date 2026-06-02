@@ -9,3 +9,4 @@ reports/*.pdf
 reports/cron.log
 __pycache__/
 *.pyc
+collector/cal_data_pi_archive_*.db.gz
