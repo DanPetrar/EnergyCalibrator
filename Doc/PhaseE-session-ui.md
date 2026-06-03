@@ -9,10 +9,7 @@ generate/download the session report**, with live monitoring via Grafana during 
 
 ## 1. Model & key decisions (confirmed with user 2026-06-03)
 
-- **One physical bench.** There is a single bench unit (Unit D, MQTT `cal_F07F8C`). A
-  *session* is a **labeled time window** during which one DUT box (e.g. `PS-1110`) was
-  under test. The entered **serial is metadata/label only** — it does **not** filter
-  data (every row is `cal_F07F8C`). The session report filters by **time window** alone.
+- **One physical bench.** There is a single bench unit (currently Unit A, MQTT `cal_E47730`; was Unit D `cal_F07F8C` until 2026-06-03 swap). A *session* is a **labeled time window** during which one DUT box (e.g. `PS-1110`) was under test. The entered **serial is metadata/label only** — it does **not** filter data. The session report filters by **time window** alone.
 - **Report generation: manual, regeneratable.** Stop only closes the window. A per-session
   *Generate report* button (re)builds the PDF on demand — so you can re-run after late
   MQTT data settles.

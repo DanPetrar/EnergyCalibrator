@@ -116,6 +116,16 @@ See `energy-audit.md`.
 
 ---
 
+### 2026-06-03 — LilyGO T7-S3 LED invisible (wrong driver type)
+
+**Context:** LED on Unit D (LilyGO T7-S3) showed only a tiny dim white flash per NeoPixel data call — every colour appeared identical and nearly invisible since the first build.
+
+- **Root cause:** GPIO17 on the LilyGO T7-S3 is a plain single-color LED, not a WS2812/NeoPixel. The `Adafruit_NeoPixel` protocol sent serial data to a GPIO that only responds to HIGH/LOW. Each `led.show()` produced a brief transition flash.
+- **Fix (v1.0.5):** `#if defined(BOARD_LILYGO_T7S3)` conditional compile. LilyGO path uses plain `digitalWrite` with a priority blink state machine (`ledLoop()` called every `loop()`): idle heartbeat / data double-tap / fault long-flash. `led_flash()` on LilyGO only updates a `gLastDataMs` timestamp; `ledLoop()` owns the GPIO exclusively. S3-Zero NeoPixel path unchanged.
+- **Prevention:** Verify LED type from the official board schematic before assuming NeoPixel. LilyGO T7-S3 official example (`test.ino`) uses `digitalWrite(LED_PIN, HIGH)` — no NeoPixel library.
+
+---
+
 ### 2026-06-02 — Pi→Workstation migration: operational gotchas
 
 **Context:** migrated the bench backend (collector + reports + crons + new InfluxDB/Grafana feed) from the Pi to the Workstation, data-safe (parallel-run → verify → cutover). Several non-obvious traps surfaced:
