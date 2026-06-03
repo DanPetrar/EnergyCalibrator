@@ -17,11 +17,19 @@
 #include <Snapshot.h>
 #include "WebUI.h"
 
-// LilyGO T7 S3 only — EnergyCalibrator runs exclusively on this board
+// Build flag -D BOARD_S3ZERO      → Waveshare ESP32-S3-Zero 4MB/2MB PSRAM
+// Build flag -D BOARD_LILYGO_T7S3 → LilyGO T7 S3 WROOM-1 16MB/8MB (default)
+// Unified pinout: BOX_GPIO=5 and SDM RX/TX=15/16 on all boards.
+#if defined(BOARD_S3ZERO)
+  #define LED_PIN      21   // onboard NeoPixel on S3-Zero
+  #define PWR_ADC_PIN  (-1)
+  #define BAT_ADC_PIN  (-1)
+#else                        // BOARD_LILYGO_T7S3 default
+  #define LED_PIN      17
+  #define PWR_ADC_PIN  2
+  #define BAT_ADC_PIN  4
+#endif
 #define BOX_GPIO     5      // UART1 RX — measurement box serial
-#define LED_PIN      17
-#define PWR_ADC_PIN  2
-#define BAT_ADC_PIN  4
 #define SDM_RX_PIN   15     // UART2 RX ← RS485 module RX
 #define SDM_TX_PIN   16     // UART2 TX → RS485 module TX
 

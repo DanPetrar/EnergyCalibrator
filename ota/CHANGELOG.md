@@ -1,5 +1,13 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.4 — 2026-06-03
+
+- Add Waveshare ESP32-S3-Zero board support (build_s3zero.sh):
+  LED_PIN 17→21 (onboard NeoPixel), PWR_ADC/BAT_ADC disabled (-1)
+  Pins unchanged: BOX_GPIO=5, SDM RX=15, TX=16 (unified pinout)
+  Partition: min_spiffs (1.9MB OTA slots, 128KB LittleFS), 4MB QIO
+- Boards: BOARD_LILYGO_T7S3 (default) / BOARD_S3ZERO (build flag)
+
 ## v1.0.3 — 2026-06-01
 
 - Fix F1 (energy audit): on an SDM630 poll failure the skipped minute's box
