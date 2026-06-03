@@ -48,6 +48,13 @@ Parallel CT calibration tool. Three CT sensors from a measurement box (R/S/T cha
 | 2 | PWR ADC |
 | 4 | BAT ADC |
 
+> **Shared pinout standard (2026-06-03):** box RX = **GPIO5** and RS485 (SDM630,
+> auto-direction) RX/TX = **GPIO15/16** are the common comms pins across **both
+> board targets** (LilyGO T7 S3 and ESP32-S3-Zero) and **both projects**
+> (EnergyCalibrator + ZaxEnergySurvey). The S3-Zero exposes 5 on its header and
+> 15/16 on board pads. EnergyCalibrator firmware is T7-only today, but the pinout
+> is Zero-ready should a Zero build be added.
+
 ### 2.2 SDM630-M Smart Meter
 
 | Item | Value |
