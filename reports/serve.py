@@ -4,7 +4,7 @@
 - Static PDF index/download.
 - Session lifecycle: enter DUT serial -> start -> (pause/continue)* -> stop ->
   generate/download report. A session is a set of ACTIVE time segments over the
-  single bench (Unit D, cal_F07F8C); paused spans are excluded from the report.
+  single bench; paused spans are excluded from the report.
   Partial reports can be generated mid-run. See Doc/PhaseE-session-ui.md.
 """
 
@@ -17,7 +17,7 @@ import sqlite3
 import subprocess
 import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import unquote, parse_qs
+from urllib.parse import unquote, parse_qs, quote
 
 HERE        = os.path.dirname(os.path.abspath(__file__))
 REPORTS_DIR = HERE
@@ -94,6 +94,17 @@ def _segments(conn, sid, close_at=None):
     return out
 
 
+def _active_unit():
+    """Return (unit, age_seconds) for the most recent cal_sec row, or (None, None)."""
+    conn = db()
+    row = conn.execute(
+        "SELECT unit, ts FROM cal_sec ORDER BY ts DESC LIMIT 1").fetchone()
+    conn.close()
+    if not row:
+        return None, None
+    return row[0], int(time.time()) - row[1]
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # suppress access logs
@@ -122,6 +133,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._continue()
         if path == 'sessions/stop':
             return self._stop()
+        if path == 'sessions/change_unit':
+            return self._change_unit()
         m = re.fullmatch(r'sessions/(\d+)/(report|partial)', path)
         if m:
             return self._gen(int(m.group(1)), partial=(m.group(2) == 'partial'))
@@ -179,20 +192,34 @@ class Handler(BaseHTTPRequestHandler):
         conn.close()
         return self._redirect('/')
 
-    def _stop(self):
+    def _do_stop_session(self):
+        """Stop the active session. Returns session id, or None if none active."""
         now = int(time.time())
         conn = db()
         row = conn.execute(
             "SELECT id FROM sessions WHERE status IN ('running','paused')").fetchone()
         if not row:
             conn.close()
-            return self._redirect('/?err=no+active+session')
+            return None
         conn.execute("UPDATE session_segments SET seg_stop=? "
                      "WHERE session_id=? AND seg_stop IS NULL", (now, row[0]))
         conn.execute("UPDATE sessions SET stop_ts=?, status='stopped' WHERE id=?",
                      (now, row[0]))
         conn.commit()
         conn.close()
+        return row[0]
+
+    def _stop(self):
+        if self._do_stop_session() is None:
+            return self._redirect('/?err=no+active+session')
+        return self._redirect('/')
+
+    def _change_unit(self):
+        prev_unit, _ = _active_unit()
+        if self._do_stop_session() is None:
+            return self._redirect('/?err=no+active+session')
+        if prev_unit:
+            return self._redirect(f'/?waiting={quote(prev_unit)}')
         return self._redirect('/')
 
     def _gen(self, sid, partial):
@@ -245,11 +272,38 @@ class Handler(BaseHTTPRequestHandler):
         conn.close()
         active = next((s for s in sessions if s['status'] in ('running', 'paused')), None)
 
-        err = parse_qs(self.path.split('?', 1)[1])['err'][0] \
-            if '?' in self.path and 'err=' in self.path else ''
-        err_html = f'<p class="err">{html.escape(err)}</p>' if err else ''
+        qs = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
+        err           = qs.get('err',      [''])[0]
+        waiting_prev  = qs.get('waiting',  [''])[0]
+        new_unit_hint = qs.get('new_unit', [''])[0]
 
-        if active:
+        err_html   = f'<p class="err">{html.escape(err)}</p>' if err else ''
+        head_extra = ''
+
+        # --- connected unit display ---
+        unit, unit_age = _active_unit()
+        if unit and unit_age <= 15:
+            unit_html = (f'<p>Unit: <b>{html.escape(unit)}</b>'
+                         f' <span style="color:#080">&#9679;&nbsp;live</span></p>')
+        elif unit:
+            unit_html = (f'<p>Unit: <b>{html.escape(unit)}</b>'
+                         f' <span style="color:#888">(last seen {unit_age}s ago)</span></p>')
+        else:
+            unit_html = '<p>Unit: <span style="color:#888">none — no recent data</span></p>'
+
+        # --- waiting for new unit ---
+        if waiting_prev and not active:
+            cur_unit, cur_age = _active_unit()
+            if cur_unit and cur_unit != waiting_prev and cur_age < 30:
+                return self._redirect(f'/?new_unit={quote(cur_unit)}')
+            head_extra = (f'<meta http-equiv="refresh" '
+                          f'content="5; url=/?waiting={html.escape(waiting_prev)}">')
+            top = (f'<div class="banner" style="background:#e8f0fe;border-color:#4a7fd4">'
+                   f'Waiting for new unit&ensp;'
+                   f'<span style="color:#555">(previously: '
+                   f'<b>{html.escape(waiting_prev)}</b>)</span>'
+                   f'&ensp;&#8987;</div>')
+        elif active:
             sid = active['id']
             if active['status'] == 'running':
                 toggle = ('<form method="post" action="/sessions/pause" '
@@ -264,17 +318,27 @@ class Handler(BaseHTTPRequestHandler):
                            f'</button></form>')
             partial_dl = (f' <a href="/{active["partial"]}">partial&nbsp;PDF</a>'
                           if active['partial'] else '')
+            change_btn = ('<form method="post" action="/sessions/change_unit" '
+                          'style="display:inline"><button>Change unit</button></form>')
             top = (f'<div class="banner"><b>{html.escape(active["serial"])}</b> — {state}'
                    f', since {_fmt(active["start_ts"])} '
                    f'(<a href="{_grafana_url(active)}" target="_blank">live in Grafana</a>)'
                    f'<div style="margin-top:8px">{toggle}{partial_btn}'
                    f'<form method="post" action="/sessions/stop" style="display:inline">'
-                   f'<button>Stop</button></form>{partial_dl}</div></div>')
+                   f'<button>Stop</button></form>{change_btn}{partial_dl}</div></div>')
         else:
-            top = ('<form method="post" action="/sessions/start" class="startform">'
-                   '<label>DUT serial <input name="serial" required></label>'
-                   '<label>notes <input name="notes"></label>'
-                   '<button>Start session</button></form>')
+            hint_html  = ''
+            notes_val  = ''
+            if new_unit_hint:
+                hint_html = (f'<p style="color:#2a6020"><b>New unit detected: '
+                             f'{html.escape(new_unit_hint)}</b>'
+                             f' — enter DUT serial to start a new session.</p>')
+                notes_val = f' value="{html.escape(new_unit_hint)}"'
+            top = (f'{hint_html}'
+                   f'<form method="post" action="/sessions/start" class="startform">'
+                   f'<label>DUT serial <input name="serial" required></label>'
+                   f'<label>notes <input name="notes"{notes_val}></label>'
+                   f'<button>Start session</button></form>')
 
         srows = ''.join(
             f'<tr><td>{s["id"]}</td><td>{html.escape(s["serial"])}</td>'
@@ -301,6 +365,7 @@ class Handler(BaseHTTPRequestHandler):
 
         return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>EnergyCalibrator Bench</title>
+{head_extra}
 <style>
   body {{ font-family: sans-serif; max-width: 900px; margin: 40px auto; color: #222; }}
   h1, h2 {{ color: #2a4060; }}
@@ -319,7 +384,7 @@ class Handler(BaseHTTPRequestHandler):
   button {{ padding: 5px 14px; margin-left: 10px; cursor: pointer; }}
 </style></head><body>
 <h1>EnergyCalibrator Bench</h1>
-<p>Unit: cal_F07F8C</p>
+{unit_html}
 {err_html}
 {top}
 <h2>Sessions</h2>
