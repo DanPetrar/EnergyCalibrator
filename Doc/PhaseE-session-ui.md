@@ -1,6 +1,7 @@
 # Phase E — Bench Session UI (spec)
 
-_Status: SPEC (agreed 2026-06-03). No code written yet. Implementation plan in §7._
+_Status: IMPLEMENTED 2026-06-03 (commit `a5629f1`, live on `cal_reports`). Built per §7;
+end-to-end verified on http://192.168.110.11:8080/. Implementation plan retained in §7._
 
 The originating objective of the Pi→Workstation migration: a small web app on the
 bench report server to **enter a DUT box serial → start a test session → stop →

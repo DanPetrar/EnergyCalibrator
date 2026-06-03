@@ -23,6 +23,16 @@ Append one entry per non-trivial debugging session.
 
 ---
 
+### 2026-06-03 — Phase E session UI: report 500 when run from /tmp
+
+**Symptom:** While smoke-testing `serve.py` from a copy in `/tmp` on the WS, `POST /sessions/<id>/report` returned 500 (no PDF).
+
+**Root cause:** `GEN_REPORT` is built relative to the script dir (`os.path.dirname(__file__)/../report/generate_report.py`). Running the copy from `/tmp` resolved it to `/report/generate_report.py`, which doesn't exist. Test-harness artifact, not a code bug — in production `serve.py` lives in the repo `reports/` dir so the path is correct.
+
+**Fix:** Verify via the real deployed service (git pull → `cal_reports` restart → test on `:8080`), not an out-of-tree copy. End-to-end then passed (real 5.4 KB PDF generated + downloaded).
+
+---
+
 ### 2026-05-31 — MQTT subscription `cal_+/sec` invalid filter
 
 **Symptom:** `cal_collector.py` connected to broker but immediately logged `[MQTT] Invalid subscription filter` and reconnected in a loop. No data was stored.

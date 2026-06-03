@@ -277,8 +277,42 @@ regression tests: `report/tests/test_report_data.py`.
 **Service:** systemd `cal_reports.service` on the Workstation (port 8080, auto-starts)  
 **URL:** http://192.168.110.11:8080/  
 
-Lists all available PDFs with download links. New reports appear automatically.
-(Serves/lists only — generation is via the cron or `generate_report.py`.)
+Lists all available PDFs with download links, plus the **bench session UI** (§7c).
+
+---
+
+## 7c. Bench session UI (Phase E)
+
+`reports/serve.py` (same `cal_reports.service`, port 8080) also runs a session
+workflow: **enter a DUT box serial → Start → Stop → generate/download the session
+report**. Spec: `Doc/PhaseE-session-ui.md`.
+
+A *session* is a labeled time window over the single bench (Unit D, `cal_F07F8C`);
+the serial is a label only — the session report filters by **time window** (it calls
+`generate_report.py --from start --to stop`, passing `--db` for the live WS DB).
+
+**New table** in `cal_data.db`:
+
+```sql
+sessions(id, serial, start_ts, stop_ts, status, notes, report)
+-- partial unique index sessions_one_running ON (status) WHERE status='running'
+```
+
+The partial index DB-enforces **one running session at a time**. The server creates
+the table/index on startup.
+
+**Endpoints** (stdlib `http.server`, `ThreadingHTTPServer`, no new deps):
+
+| Method | Path | Action |
+|--------|------|--------|
+| GET  | `/` | Index: running banner + Stop, Start form, sessions table, PDF list |
+| POST | `/sessions/start` | `serial` (+`notes`); creates running session (`start_ts=now`); 409-equivalent redirect if one already running |
+| POST | `/sessions/stop` | Closes the running session (`stop_ts=now`, `status='stopped'`) |
+| POST | `/sessions/<id>/report` | Runs `generate_report.py` for the session window → `reports/session_<serial>_<id>.pdf`; regeneratable |
+| GET  | `/<file>.pdf` | Download (unchanged) |
+
+Each session row links to the Grafana dashboard scoped to its window
+(`?from=<start_ms>&to=<stop_ms|now>`). No auth (LAN-local).
 
 ---
 
