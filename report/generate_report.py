@@ -103,7 +103,7 @@ def fetch_sec_by_hour(db, unit, ts_from, ts_to, ranges=None):
     rows = fetch_sec_all(db, unit, ts_from, ts_to, ranges)
     buckets = defaultdict(lambda: defaultdict(list))
     for r in rows:
-        h = datetime.fromtimestamp(r['ts']).hour
+        h = _hour_key(r['ts'])
         for ch in ('R', 'S', 'T'):
             for col in ('w', 'v', 'a', 'pf'):
                 v = r[f'{ch}_{col}']
@@ -122,9 +122,16 @@ def fetch_sec_by_hour(db, unit, ts_from, ts_to, ranges=None):
     return out
 
 
+def _hour_key(ts):
+    """Absolute hour-start epoch (local-time aligned) — keys hourly buckets
+    chronologically and keeps same-hour-of-day distinct across days."""
+    return int(datetime.fromtimestamp(ts)
+               .replace(minute=0, second=0, microsecond=0).timestamp())
+
+
 def min_by_hour(rows):
     b = defaultdict(list)
-    for r in rows: b[datetime.fromtimestamp(r['ts']).hour].append(r)
+    for r in rows: b[_hour_key(r['ts'])].append(r)
     return b
 
 
@@ -292,6 +299,10 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
     ct_info = {ch: {'kwh': ct_kwh[ch], 'dev': ct_dev[ch]} for ch in ('R','S','T')}
     mbh   = min_by_hour(min_rows)
     hours = sorted(set(list(mbh.keys()) + list(sec_hourly.keys())))
+    # multi-day windows (sessions) label the hour with its date; single-day
+    # reports (daily cron) keep the bare "HH:00".
+    multiday = len({datetime.fromtimestamp(h).date() for h in hours}) > 1
+    hour_fmt = '%m-%d %H:00' if multiday else '%H:00'
 
     # ── Section 1: Day Overview ───────────────────────────────────────────────
     story.append(Paragraph('Day Overview', S['H2']))
@@ -342,7 +353,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
         cov  = int(sec.get('n', 0) * 100 // 3600)
         ri   = len(sum_rows)
         sum_rows.append([
-            f'{h:02d}:00',
+            datetime.fromtimestamp(h).strftime(hour_fmt),
             f'{sdms["mtr_w"]:.0f} W'       if sdms['mtr_w'] else '—',
             f'{en["SDM"]:.4f} kWh',
             f'{devs["R"]:+.1f}%'           if devs['R'] is not None else '—',
@@ -355,9 +366,12 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
             sum_styles.append((ri, ci, dev_bg(devs.get(ch))))
         if cov < 80:
             sum_styles.append((ri, 7, COL_YELLOW))
+    hour_w = 2.6*cm if multiday else 1.5*cm
+    rest_w = [2.7*cm, 2.7*cm, 2.0*cm, 2.0*cm, 2.0*cm, 2.2*cm, 1.9*cm]
+    if multiday:                       # reclaim the extra Hour width from W/kWh cols
+        rest_w[0] = rest_w[1] = 2.35*cm
     story.append(_table(sum_rows,
-                        col_widths=[1.5*cm, 2.7*cm, 2.7*cm,
-                                    2.0*cm, 2.0*cm, 2.0*cm, 2.2*cm, 1.9*cm],
+                        col_widths=[hour_w] + rest_w,
                         row_styles=sum_styles))
     story.append(Spacer(1, 0.12*cm))
 
