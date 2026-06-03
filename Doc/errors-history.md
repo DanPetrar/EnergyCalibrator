@@ -33,6 +33,16 @@ Append one entry per non-trivial debugging session.
 
 ---
 
+### 2026-06-03 — Stale test server stopped the live PS-1110 session
+
+**Symptom:** During Phase E.2 testing, the live session #1 (PS-1110) flipped from `running` to `stopped` (stop_ts 12:24) unexpectedly; pause/continue curls in a lifecycle test returned 404.
+
+**Root cause:** An old alt-port (`:8099`) test server from a *previous session's* background task was still running and configured with `CAL_DB=` the **live** DB. The new test server failed to bind (port in use), so the lifecycle curls hit the **old** server — which lacked pause/continue (→404) but whose `stop` handler ran `UPDATE sessions SET status='stopped' WHERE status='running'` against the live DB, stopping PS-1110. (No data lost — the collector is independent; the one-running index blocked the stray `start`.)
+
+**Fix:** `fuser -k 8099/tcp` to kill the stale server; restored session #1 (`status='running'`, `stop_ts=NULL`). **Rule:** test servers must use a **copy** DB (`cp cal_data.db /tmp/...`), and always free the port (`fuser -k`) before launching — never let an alt-port server point at the live DB.
+
+---
+
 ### 2026-05-31 — MQTT subscription `cal_+/sec` invalid filter
 
 **Symptom:** `cal_collector.py` connected to broker but immediately logged `[MQTT] Invalid subscription filter` and reconnected in a loop. No data was stored.
