@@ -49,7 +49,7 @@ the box-vs-SDM comparison is valid.
 | F2 | Low | By design | Reboot/OTA gap dropped from per-minute series, symmetric |
 | F3 | Low | Report-immune | First-sample adds absolute box counter to `cumKwh` |
 | F4 | Info | Documented | Dual accumulator is consistent; roles now commented in source |
-| F5 | Info | Inherent | ~1 Wh/min box quantization → short-window dkWh noise |
+| F5 | Info | Inherent | box energy counter = 0.01 kWh (10 Wh, 2 dp) vs SDM 0.001 kWh (1 Wh, 3 dp) → short-window dkWh noise / per-minute zeros |
 
 ### F1 — SDM-poll-failure misalignment *(latent; 0 occurrences today)*
 When `sdm630Poll()` fails, `mqttPublishPaired()` is skipped, so `prevMeterKwh`
@@ -95,9 +95,16 @@ absolute `total_kwh` display carries the offset.
 box delta. The duplication is a maintainability smell only.
 
 ### F5 — Quantization *(inherent)*
-Box kWh resolution is ~1 Wh/min, so a single 30-min window's dkWh deviation can
-swing several percent (seen as transient ±4–6% blips). Averages out over hours;
-**do not** read sub-hourly dkWh deviations as drift.
+The box energy counter resolves to **0.01 kWh (10 Wh) — 2 decimals** per channel
+(verified 2026-06-03: every box `dkwh` value lands exactly on the 0.01 grid; the
+observed values are only 0.02/0.03/0.05/0.06, *never* 0.01). At ~450 W a channel
+earns ~7 Wh/min — **less than one count per minute** — so most minutes read 0 and
+the counter releases an accumulated 0.02–0.03 kWh when it finally ticks. The
+**SDM630 reference is 10× finer: 0.001 kWh (1 Wh), 3 decimals**, so it logs energy
+every minute. A single 30-min window's dkWh deviation can therefore swing several
+percent (transient ±4–6% blips); it averages out over hours. **Do not** read
+per-minute or sub-hourly box dkWh as drift — and **do not** chart box energy at
+per-minute resolution (use cumulative or ≥15-min sums).
 
 ---
 

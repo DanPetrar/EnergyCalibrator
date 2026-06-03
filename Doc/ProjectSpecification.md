@@ -396,7 +396,7 @@ All three CTs within ±1% — highly accurate at real-load conditions.
 
 ## 11. Known Issues / Observations
 
-- **dkwh quantization:** box firmware reports dkwh at ~1 Wh/min resolution per channel. Causes noise in short windows (≤30 min); averages out over full-day totals.
+- **dkwh quantization:** the box energy counter has **0.01 kWh (10 Wh) resolution — 2 decimals** per channel (verified 2026-06-03: all box `dkwh` values land exactly on the 0.01 grid). At typical bench loads (~450 W ≈ 7 Wh/min) a channel earns *less than one count per minute*, so most minutes read 0 and the counter releases an accumulated 0.02–0.03 kWh when it ticks (you never see 0.01). The **SDM630 reference is 10× finer — 0.001 kWh (1 Wh), 3 decimals** — so it has a value every minute. Consequence: **per-minute box energy is not meaningful**; compare `Σ dkwh` over ≥15-min windows (full-day for totals). Use the cumulative / 15-min Grafana views, not per-minute.
 - **MQTT sec drop rate:** ~3.5% of per-second packets lost in transit. Irrelevant for energy (uses cal_min dkwh), but reduces sec coverage in cal_sec to ~96.5%.
 - **Instantaneous mismatch:** SDM `ts` in cal_min is ~226ms after box minute. Rapid load changes between the two reads will show a gap in the instantaneous comparison — not a measurement error.
 - **bat_pct reads -1:** Unit D powered by box USB — no battery. Normal.
