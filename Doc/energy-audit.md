@@ -1,5 +1,9 @@
 # EnergyCalibrator — Firmware dkWh Accumulation Audit (Phase 1)
 
+> **Historical note:** this audit was performed on Unit D (`cal_F07F8C`, LilyGO T7 S3).
+> Unit D was replaced on the bench by Unit A (`cal_E47730`, S3-Zero) on 2026-06-03.
+> The findings and fixes documented here apply to all firmware builds regardless of unit.
+
 **Date:** 2026-06-01
 **Scope:** Verify that the per-minute box **dkWh** values stored in `cal_min`
 (which the report sums) faithfully represent the box's true energy — no

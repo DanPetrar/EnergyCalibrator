@@ -26,15 +26,18 @@ Parallel CT calibration tool. Three CT sensors from a measurement box (R/S/T cha
 
 ## 2. Hardware
 
-### 2.1 Calibration Unit — Unit D
+### 2.1 Calibration Unit — Bench Unit
+
+> **Unit A** (Waveshare ESP32-S3-Zero) has been the active bench unit since 2026-06-03.
+> Unit D (LilyGO T7 S3) was the original bench unit; its commissioning record is in §8.
 
 | Item | Value |
 |------|-------|
-| Board | LilyGO T7 S3 WROOM-1 N16R8 (16MB flash, 8MB OPI PSRAM) |
-| MAC | 80:B5:4E:F0:7F:8C |
-| MQTT prefix | `cal_F07F8C` |
-| IP | 192.168.110.104 (static DHCP) |
-| Power | Measurement box USB (no Pi connection) |
+| Board | Waveshare ESP32-S3-Zero (4 MB flash, 2 MB OPI PSRAM) |
+| MAC suffix | E47730 |
+| MQTT prefix | `cal_E47730` |
+| IP | 192.168.110.152 (static DHCP) |
+| Power | Measurement box USB |
 | Update method | OTA only |
 
 **Pin assignments:**
@@ -121,14 +124,14 @@ define `SecRecord`/`MinRecord`/`DATA_VERSION`/`ZaxConfig` first.
 
 ```
 Box serial (UART1, GPIO5)
-  └─ per-second frames (R/S/T) ──→ SecRecord ──→ MQTT cal_F07F8C/sec (binary, 76 bytes)
+  └─ per-second frames (R/S/T) ──→ SecRecord ──→ MQTT cal_E47730/sec (binary, 76 bytes)
   └─ per-minute frames (ch==2)  ──→ trigger SDM630 poll (~226ms)
                                        │
                           UART2 (GPIO15/16, Modbus RTU, 9600 baud)
                                        │
                                  SDM630 Read1 + 100ms + Read2
                                        │
-                                  MinRecord ──→ MQTT cal_F07F8C/min (JSON)
+                                  MinRecord ──→ MQTT cal_E47730/min (JSON)
                                               ──→ LittleFS energy log
 ```
 
@@ -136,9 +139,9 @@ Box serial (UART1, GPIO5)
 
 | Topic | Type | Content |
 |-------|------|---------|
-| `cal_F07F8C/sec` | Binary (76 bytes) | Per-second SecRecord: ts, V/A/W/Hz/VAr/PF × 3 channels |
-| `cal_F07F8C/min` | JSON | Paired record: box_sec, box_min, meter, dev (abs+% per CT) |
-| `cal_F07F8C/faults` | JSON | Active fault state per phase |
+| `cal_E47730/sec` | Binary (76 bytes) | Per-second SecRecord: ts, V/A/W/Hz/VAr/PF × 3 channels |
+| `cal_E47730/min` | JSON | Paired record: box_sec, box_min, meter, dev (abs+% per CT) |
+| `cal_E47730/faults` | JSON | Active fault state per phase |
 
 ### 3.4 HTTP API
 
@@ -165,11 +168,15 @@ fail early with install instructions if it is missing).
 bash arduino/build_lilygo.sh /dev/ttyACM<N>
 
 # Push OTA — MUST use -F (multipart), NOT --data-binary
-curl -X POST http://192.168.110.104/api/ota \
-  -F "firmware=@ota/EnergyCalibrator_vX.Y.Z_lilygo.bin;type=application/octet-stream"
+# S3-Zero (Unit A, .152)
+curl -F "firmware=@ota/EnergyCalibrator_vX.Y.Z_s3zero.bin;type=application/octet-stream" \
+  http://192.168.110.152/api/ota
+# LilyGO (Unit D, .104)
+curl -F "firmware=@ota/EnergyCalibrator_vX.Y.Z_lilygo.bin;type=application/octet-stream" \
+  http://192.168.110.104/api/ota
 ```
 
-Unit D reboots on success (~30s). Verify with `curl http://192.168.110.104/api/sysinfo`.
+Unit reboots on success (~15s). Verify with `curl http://<IP>/api/ota_meta`.
 
 ---
 
@@ -180,7 +187,7 @@ Unit D reboots on success (~30s). Verify with `curl http://192.168.110.104/api/s
 > Workstation** (`192.168.110.11`, user `dan-linux`). It runs there from
 > `/workspace/projects/EnergyCalibrator`, against DB
 > `/workspace/cal-data/cal_data.db`, using the venv
-> `/workspace/projects/EnergyCalibrator/.venv/bin/python3`. Unit D publishes to
+> `/workspace/projects/EnergyCalibrator/.venv/bin/python3`. The bench unit (Unit A) publishes to
 > the Workstation broker (`mqtt_host=192.168.110.11`). The Pi bench services are
 > disabled and the old Pi DB is archived. Firmware build/flash still happens on
 > the Pi (USB). See the `DanPetrar/Workstation` repo for the migration runbook.
@@ -241,8 +248,8 @@ Prints a 30-min snapshot to the terminal:
 **Requires:** `reportlab` — installed in the Workstation venv (`/workspace/projects/EnergyCalibrator/.venv`)  
 **Usage:**
 ```bash
-python3 report/generate_report.py --date YYYY-MM-DD --unit cal_F07F8C
-python3 report/generate_report.py --all --unit cal_F07F8C
+python3 report/generate_report.py --date YYYY-MM-DD --unit cal_E47730
+python3 report/generate_report.py --all --unit cal_E47730
 ```
 
 ### Energy methodology
@@ -333,7 +340,8 @@ bench health alongside the daily PDFs.
 **Parser:** `infrastructure/cal_parser.py` (in the `DanPetrar/Workstation` repo),
 deployed on the Workstation as systemd `cal-parser.service` →
 `/opt/cal-parser/cal_parser.py` (venv python). Subscribes the local broker
-`cal_F07F8C/#`; writes InfluxDB bucket `zaxenergy` (org `zax`):
+`cal_E47730/#` (updated 2026-06-03 when Unit A replaced Unit D on bench);
+writes InfluxDB bucket `zaxenergy` (org `zax`):
 
 | Measurement | Source | Tags | Fields |
 |-------------|--------|------|--------|
@@ -342,7 +350,7 @@ deployed on the Workstation as systemd `cal-parser.service` →
 | `cal_box`   | `min`.box | unit, phase | w, dkwh |
 | `cal_dev`   | `min`.dev | unit, phase | w_pct, dkwh_pct |
 
-`unit` tag is the stable MQTT id `cal_F07F8C` (the device-under-test name is
+`unit` tag is the stable MQTT id `cal_E47730` (the device-under-test name is
 tracked separately, not in the tag).
 
 **Grafana dashboard:** "Bench - calibration" (uid `bench-calib`) →

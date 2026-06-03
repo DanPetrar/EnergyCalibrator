@@ -130,7 +130,7 @@ Develop on the Pi clone `/home/pi/EnergyCalibrator`, deploy to the WS via `ssh w
 ## 8. Out of scope / notes
 
 - No authentication (LAN-local, matches existing services).
-- No multi-bench support (single Unit D by design — see §1).
+- No multi-bench support (single bench unit by design — see §1).
 - The serial is not read from firmware; it is operator-entered.
 - `serve.py` currently prints a stale `192.168.110.225` startup line — fix to `.11`
   while editing (cosmetic, same file).
