@@ -139,3 +139,45 @@ Develop on the Pi clone `/home/pi/EnergyCalibrator`, deploy to the WS via `ssh w
   while editing (cosmetic, same file).
 - Report build is synchronous; for the single-user bench that's acceptable.
   `ThreadingHTTPServer` keeps the index responsive during a build.
+
+---
+
+## 9. Addendum — Pause/Continue + Partial report (2026-06-03)
+
+Added two buttons to the live-session UI; **verified** on the WS (report-engine
+exclusion + lifecycle on a copy DB).
+
+**Model change — sessions are now a set of active segments.** A session can be
+`running` | `paused` | `stopped`; paused spans are **excluded** from the report
+totals. New table:
+
+```sql
+session_segments(id, session_id, seg_start, seg_stop)   -- seg_stop NULL = open
+```
+
+- **Start** → session `running` + open segment.
+- **Pause** (`POST /sessions/pause`) → close open segment, status `paused`.
+- **Continue** (`POST /sessions/continue`) → open a new segment, status `running`.
+- **Stop** → close open segment, `stop_ts=now`, status `stopped`.
+- Only **one active** (running|paused) session at a time (app guard + the running
+  unique index).
+
+**Reports run over the union of active segments** (paused gaps dropped):
+- **Final report** (`/sessions/<id>/report`, stopped only) → all closed segments.
+- **Generate partial report** (`/sessions/<id>/partial`, running|paused) → segments
+  with the open one virtually closed at *now*; writes a **rolling**
+  `session_<serial>_<id>_partial.pdf` (overwritten each time); status unchanged.
+
+**Report generator:** `generate_report.py` gained `--segments "a-b,c-d,…"` (epoch
+pairs). The three `fetch_*` functions take the union of intervals; the
+`--date/--from/--to/--all` single-window paths are untouched (daily cron safe).
+
+**Legacy sessions** created before this change have no `session_segments` rows;
+`_segments()` falls back to the session's own `start_ts/stop_ts` window (so the
+pre-existing PS-1110 session #1 reports correctly as a single window). Do not
+Pause/Continue a legacy session — that would add a partial segment and disable the
+fallback.
+
+UI: while a session is live the banner shows **Pause/Continue** (toggle by state),
+**Generate partial report**, and **Stop**, plus a download link to the latest
+partial PDF.

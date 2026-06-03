@@ -65,23 +65,31 @@ def _absdev(d):
 
 # ── data ──────────────────────────────────────────────────────────────────────
 
-def fetch_min(db, unit, ts_from, ts_to):
+def _time_pred(ts_from, ts_to, ranges):
+    """Build the ts WHERE clause + params. `ranges` (list of (a,b) epoch pairs)
+    produces a union of intervals (used for paused-session reports, excluding
+    gaps); when None the original single window is used (daily/--date/--all)."""
+    if ranges:
+        clause = "(" + " OR ".join("(ts >= ? AND ts < ?)" for _ in ranges) + ")"
+        return clause, [x for r in ranges for x in r]
+    return "ts >= ? AND ts < ?", [ts_from, ts_to]
+
+
+def fetch_min(db, unit, ts_from, ts_to, ranges=None):
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
-    w = "ts >= ? AND ts < ?"
-    p = [ts_from, ts_to]
+    w, p = _time_pred(ts_from, ts_to, ranges)
     if unit: w += " AND unit = ?"; p.append(unit)
     rows = conn.execute(f"SELECT * FROM cal_min WHERE {w} ORDER BY ts", p).fetchall()
     conn.close()
     return rows
 
 
-def fetch_sec_all(db, unit, ts_from, ts_to):
+def fetch_sec_all(db, unit, ts_from, ts_to, ranges=None):
     """Return raw sec rows (ts, R_w, S_w, T_w, R_v, R_a, R_pf, ...)."""
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
-    w = "ts >= ? AND ts < ?"
-    p = [ts_from, ts_to]
+    w, p = _time_pred(ts_from, ts_to, ranges)
     if unit: w += " AND unit = ?"; p.append(unit)
     rows = conn.execute(
         f"SELECT ts,R_w,S_w,T_w,R_v,R_a,R_pf,S_v,S_a,S_pf,T_v,T_a,T_pf "
@@ -91,8 +99,8 @@ def fetch_sec_all(db, unit, ts_from, ts_to):
     return rows
 
 
-def fetch_sec_by_hour(db, unit, ts_from, ts_to):
-    rows = fetch_sec_all(db, unit, ts_from, ts_to)
+def fetch_sec_by_hour(db, unit, ts_from, ts_to, ranges=None):
+    rows = fetch_sec_all(db, unit, ts_from, ts_to, ranges)
     buckets = defaultdict(lambda: defaultdict(list))
     for r in rows:
         h = datetime.fromtimestamp(r['ts']).hour
@@ -371,6 +379,9 @@ def main():
     ap.add_argument('--to',   dest='to',  default=None,
                     help='interval end "YYYY-MM-DD HH:MM" or "YYYY-MM-DD"')
     ap.add_argument('--all',  action='store_true', help='All data in DB')
+    ap.add_argument('--segments', default=None,
+                    help='active session segments as epoch ranges "a-b,c-d,..." '
+                         '(union of intervals; paused gaps excluded). Overrides window.')
     args = ap.parse_args()
 
     if not os.path.exists(args.db):
@@ -390,7 +401,21 @@ def main():
             except ValueError: pass
         sys.exit(f'ERROR: bad datetime {s!r} — use "YYYY-MM-DD HH:MM"')
 
-    if args.frm or args.to:
+    ranges = None
+    if args.segments:
+        try:
+            ranges = [tuple(int(x) for x in seg.split('-'))
+                      for seg in args.segments.split(',') if seg.strip()]
+            assert ranges and all(len(r) == 2 and r[0] < r[1] for r in ranges)
+        except (ValueError, AssertionError):
+            sys.exit('ERROR: --segments must be "a-b,c-d" epoch pairs (a<b)')
+        ts_from = min(r[0] for r in ranges)
+        ts_to   = max(r[1] for r in ranges)
+        gaps = ' (paused gaps excluded)' if len(ranges) > 1 else ''
+        period_label = (f'active {datetime.fromtimestamp(ts_from):%Y-%m-%d %H:%M} – '
+                        f'{datetime.fromtimestamp(ts_to):%H:%M} · '
+                        f'{len(ranges)} segment(s){gaps}')
+    elif args.frm or args.to:
         if not (args.frm and args.to):
             sys.exit('ERROR: --from and --to must be given together')
         dt_from, dt_to = _parse_dt(args.frm), _parse_dt(args.to)
@@ -422,9 +447,9 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 
     print(f'Unit: {unit_label}  Period: {period_label}')
-    min_rows   = fetch_min(args.db, args.unit, ts_from, ts_to)
-    sec_rows   = fetch_sec_all(args.db, args.unit, ts_from, ts_to)
-    sec_hourly = fetch_sec_by_hour(args.db, args.unit, ts_from, ts_to)
+    min_rows   = fetch_min(args.db, args.unit, ts_from, ts_to, ranges)
+    sec_rows   = fetch_sec_all(args.db, args.unit, ts_from, ts_to, ranges)
+    sec_hourly = fetch_sec_by_hour(args.db, args.unit, ts_from, ts_to, ranges)
     print(f'Min rows: {len(min_rows)}  Sec rows: {len(sec_rows)}  Hours: {len(sec_hourly)}')
 
     build_pdf(min_rows, sec_rows, sec_hourly, args.out, unit_label, period_label)
