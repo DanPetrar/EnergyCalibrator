@@ -3,7 +3,9 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <PubSubClient.h>
+#if !defined(BOARD_LILYGO_T7S3)
 #include <Adafruit_NeoPixel.h>
+#endif
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <ModbusMaster.h>
@@ -118,14 +120,63 @@ float prevMeterKwh = -1.0f;
 RingBuf<SecRecord> secBuf;
 RingBuf<MinRecord> minBuf;
 
-Adafruit_NeoPixel led(LED_COUNT, LED_PIN, NEO_RGB + NEO_KHZ800);
-
 // ── LED ───────────────────────────────────────────────────────────────────────
+// LilyGO T7-S3: plain single-color LED on GPIO17 — blink patterns.
+//   idle heartbeat : 80 ms ON / 3920 ms OFF
+//   data active    : double tap + 1720 ms gap (box or SDM data)
+//   fault          : 500 ms ON / 200 ms OFF continuous
+// S3-Zero: addressable NeoPixel on GPIO21.
+
+#if defined(BOARD_LILYGO_T7S3)
+
+static uint32_t gLastDataMs = 0;
+
+enum LedMode : uint8_t { LED_IDLE = 0, LED_DATA, LED_FAULT };
+static LedMode gLedMode = LED_IDLE;
+
+struct LedStep { uint16_t ms; bool on; };
+static const LedStep kPat[3][6] = {
+  {{80,1},{3920,0},{0,0},{0,0},{0,0},{0,0}},   // IDLE
+  {{80,1},{120,0},{80,1},{1720,0},{0,0},{0,0}}, // DATA
+  {{500,1},{200,0},{0,0},{0,0},{0,0},{0,0}},    // FAULT
+};
+static const uint8_t kPatLen[3] = {2, 4, 2};
+static LedMode  gLedActive    = LED_IDLE;
+static uint8_t  gLedStep      = 0;
+static uint32_t gLedStepStart = 0;
+
+static void led_set(uint8_t r, uint8_t g, uint8_t b) {
+  digitalWrite(LED_PIN, (r || g || b) ? HIGH : LOW);
+}
+static void led_flash(uint8_t r, uint8_t g, uint8_t b) {
+  if (r || g || b) gLastDataMs = millis();
+}
+static void ledLoop() {
+  uint32_t now = millis();
+  LedMode desired = gLedMode;
+  if (desired == LED_IDLE && (now - gLastDataMs) < 3000) desired = LED_DATA;
+  if (desired != gLedActive) {
+    gLedActive = desired; gLedStep = 0; gLedStepStart = now;
+    digitalWrite(LED_PIN, kPat[desired][0].on ? HIGH : LOW);
+    return;
+  }
+  if (now - gLedStepStart >= kPat[gLedActive][gLedStep].ms) {
+    gLedStep      = (gLedStep + 1) % kPatLen[gLedActive];
+    gLedStepStart = now;
+    digitalWrite(LED_PIN, kPat[gLedActive][gLedStep].on ? HIGH : LOW);
+  }
+}
+
+#else  // S3-Zero — NeoPixel
+
+Adafruit_NeoPixel led(LED_COUNT, LED_PIN, NEO_RGB + NEO_KHZ800);
 static void led_set(uint8_t r, uint8_t g, uint8_t b) {
   led.setPixelColor(0, led.Color(r, g, b));
   led.show();
 }
 static void led_flash(uint8_t r, uint8_t g, uint8_t b) { led_set(r, g, b); delay(80); }
+
+#endif  // BOARD_LILYGO_T7S3
 
 static void ledIdle() {
   bool alert = faults.commLost;
@@ -133,7 +184,11 @@ static void ledIdle() {
     if (faults.voltState[i] == 1 || faults.voltState[i] == 3) alert = true;
     if (faults.currOver[i]) alert = true;
   }
+#if defined(BOARD_LILYGO_T7S3)
+  gLedMode = alert ? LED_FAULT : LED_IDLE;
+#else
   led_set(alert ? 32 : 0, 0, alert ? 0 : 8);
+#endif
 }
 
 // ── SDM630 Modbus reader ──────────────────────────────────────────────────────
@@ -520,8 +575,13 @@ void setup() {
   Serial.begin(115200);
   delay(400);
 
+#if defined(BOARD_LILYGO_T7S3)
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+#else
   led.begin();
   led.setBrightness(48);
+#endif
   ledIdle();
 
   loadConfig(cfg);
@@ -602,6 +662,9 @@ void setup() {
 
 void loop() {
   esp_task_wdt_reset();
+#if defined(BOARD_LILYGO_T7S3)
+  ledLoop();
+#endif
   server.handleClient();
 
   if (gWifiReconnect)  { gWifiReconnect = false;  wifiReconnect(); ntpSetup(); }

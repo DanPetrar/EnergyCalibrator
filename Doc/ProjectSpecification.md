@@ -44,7 +44,7 @@ Parallel CT calibration tool. Three CT sensors from a measurement box (R/S/T cha
 | 5 | Box serial RX — UART1, 115200 8N1 |
 | 15 | SDM630 RS485 RX — UART2 (Module TX → GPIO15) |
 | 16 | SDM630 RS485 TX — UART2 (Module RX → GPIO16) |
-| 17 | NeoPixel status LED |
+| 17 | Plain status LED (single-color GPIO, not NeoPixel) |
 | 2 | PWR ADC |
 | 4 | BAT ADC |
 
@@ -114,6 +114,8 @@ define `SecRecord`/`MinRecord`/`DATA_VERSION`/`ZaxConfig` first.
 | v1.0.1 | SDM630 inter-read 100 ms delay; `/api/sdm` endpoint |
 | v1.0.2 | Task watchdog (esp_task_wdt, 60 s, panic-reset) on the loop task; fed per-chunk during OTA upload |
 | v1.0.3 | Fix F1 energy-audit finding — per-minute box delta + baseline advance only on a successful SDM-paired publish (a skipped minute folds into the next row symmetrically with the meter) |
+| v1.0.4 | S3-Zero board support (`-DBOARD_S3ZERO`, LED=21, ADC=-1); `arduino/build_s3zero.sh` (Waveshare FQBN, min_spiffs, PSRAM enabled) |
+| v1.0.5 | LilyGO LED fix — plain GPIO + blink patterns (see ZaxMonitor v1.1.7 for rationale); S3-Zero NeoPixel color values corrected (near-invisible → 180–255 range); `led.clear()+show()` on init to suppress power-on white artifact |
 
 ### 3.2 Data Flow
 
@@ -294,7 +296,7 @@ Lists all available PDFs with download links, plus the **bench session UI** (§7
 workflow: **enter a DUT box serial → Start → Stop → generate/download the session
 report**. Spec: `Doc/PhaseE-session-ui.md`.
 
-A *session* is a labeled time window over the single bench (Unit D, `cal_F07F8C`);
+A *session* is a labeled time window over the single bench (currently Unit A, `cal_E47730`; was Unit D `cal_F07F8C` until 2026-06-03 swap);
 the serial is a label only — the session report filters by **time window** (it calls
 `generate_report.py --from start --to stop`, passing `--db` for the live WS DB).
 
