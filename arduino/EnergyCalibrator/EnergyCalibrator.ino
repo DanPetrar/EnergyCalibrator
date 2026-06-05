@@ -29,7 +29,7 @@
 #else                        // BOARD_LILYGO_T7S3 default
   #define LED_PIN      17
   #define PWR_ADC_PIN  2
-  #define BAT_ADC_PIN  4
+  #define BAT_ADC_PIN  2   // T7-S3: battery on GPIO2, R1=R2=100k divider (×2)
 #endif
 #define BOX_GPIO     5      // UART1 RX — measurement box serial
 #define SDM_RX_PIN   15     // UART2 RX ← RS485 module RX
@@ -41,9 +41,11 @@
 #define SDM_BAUD      9600
 #define BOOT_GRACE_MS 30000UL
 
-#define PWR_LOSS_ADC  1000
-#define BAT_ADC_FULL  3588
-#define BAT_ADC_EMPTY 2558
+#define BAT_MV_FULL      4200  // battery mV at 100 %
+#define BAT_MV_EMPTY     3000  // battery mV at   0 %
+#define BAT_MV_PWR_ON    4800  // above → USB/5V present
+#define BAT_MV_LOW       3200  // below → battery low warning
+#define BAT_MV_CRITICAL  2850  // below → critical low battery
 
 #if TEST_MODE
   #define BOX Serial
@@ -82,7 +84,10 @@ uint32_t     lastPublishedSecTs = 0;
 uint32_t     lastPublishedMinTs = 0;
 bool         mqttJustConnected  = false;
 int16_t      gBatPct            = -1;
+int16_t      gBatMv             = -1;
 bool         gPwrOk             = true;
+bool         gBatLow            = false;
+bool         gBatCritical       = false;
 FaultState   faults             = {};
 bool         gFaultChanged      = false;
 bool         bootGraceDone      = false;
@@ -129,32 +134,40 @@ RingBuf<MinRecord> minBuf;
 
 #if defined(BOARD_LILYGO_T7S3)
 
-static uint32_t gLastDataMs = 0;
-
-enum LedMode : uint8_t { LED_IDLE = 0, LED_DATA, LED_FAULT };
-static LedMode gLedMode = LED_IDLE;
-
+// 4-state LED — priority: ERROR > NO_BOX > MQTT_DOWN > OK
+// ERROR     : bat_critical, or no WiFi, or 2+ of {no NTP, no MQTT, no box, no SDM}
+// NO_BOX    : no box data OR no SDM data
+// MQTT_DOWN : MQTT disconnected
+// OK        : everything fine
+enum LedMode : uint8_t { LED_OK = 0, LED_MQTT_DOWN, LED_NO_BOX, LED_ERROR };
 struct LedStep { uint16_t ms; bool on; };
-static const LedStep kPat[3][6] = {
-  {{80,1},{3920,0},{0,0},{0,0},{0,0},{0,0}},   // IDLE
-  {{80,1},{120,0},{80,1},{1720,0},{0,0},{0,0}}, // DATA
-  {{500,1},{200,0},{0,0},{0,0},{0,0},{0,0}},    // FAULT
+static const LedStep kPat[4][6] = {
+  {{100,1},{2900,0},{0,0},{0,0},{0,0},{0,0}},          // OK        — single 100ms, 3s
+  {{100,1},{100,0},{100,1},{2700,0},{0,0},{0,0}},       // MQTT_DOWN — double 100ms, 3s
+  {{500,1},{500,0},{500,1},{500,0},{0,0},{0,0}},        // NO_BOX    — double 500ms, 2s
+  {{1000,1},{500,0},{0,0},{0,0},{0,0},{0,0}},           // ERROR     — 1s on/500ms off
 };
-static const uint8_t kPatLen[3] = {2, 4, 2};
-static LedMode  gLedActive    = LED_IDLE;
+static const uint8_t kPatLen[4] = {2, 4, 4, 2};
+static LedMode  gLedActive    = LED_OK;
 static uint8_t  gLedStep      = 0;
 static uint32_t gLedStepStart = 0;
 
 static void led_set(uint8_t r, uint8_t g, uint8_t b) {
   digitalWrite(LED_PIN, (r || g || b) ? HIGH : LOW);
 }
-static void led_flash(uint8_t r, uint8_t g, uint8_t b) {
-  if (r || g || b) gLastDataMs = millis();
-}
+static void led_flash(uint8_t r, uint8_t g, uint8_t b) { (void)r; (void)g; (void)b; }
 static void ledLoop() {
-  uint32_t now = millis();
-  LedMode desired = gLedMode;
-  if (desired == LED_IDLE && (now - gLastDataMs) < 3000) desired = LED_DATA;
+  uint32_t now   = millis();
+  bool wifiOk    = (WiFi.status() == WL_CONNECTED);
+  bool mqttOk    = mqtt.connected();
+  bool boxOk     = hasSec;
+  bool sdmOk     = hasMeter;
+  int  bad       = (int)!ntpSynced + (int)!mqttOk + (int)!boxOk + (int)!sdmOk;
+  LedMode desired;
+  if      (!wifiOk || bad >= 2 || gBatCritical) desired = LED_ERROR;
+  else if (!boxOk || !sdmOk)                    desired = LED_NO_BOX;
+  else if (!mqttOk)                             desired = LED_MQTT_DOWN;
+  else                                          desired = LED_OK;
   if (desired != gLedActive) {
     gLedActive = desired; gLedStep = 0; gLedStepStart = now;
     digitalWrite(LED_PIN, kPat[desired][0].on ? HIGH : LOW);
@@ -179,14 +192,12 @@ static void led_flash(uint8_t r, uint8_t g, uint8_t b) { led_set(r, g, b); delay
 #endif  // BOARD_LILYGO_T7S3
 
 static void ledIdle() {
+#if !defined(BOARD_LILYGO_T7S3)   // LilyGO: ledLoop() drives state; S3-Zero: set NeoPixel
   bool alert = faults.commLost;
   for (int i = 0; i < 3; i++) {
     if (faults.voltState[i] == 1 || faults.voltState[i] == 3) alert = true;
     if (faults.currOver[i]) alert = true;
   }
-#if defined(BOARD_LILYGO_T7S3)
-  gLedMode = alert ? LED_FAULT : LED_IDLE;
-#else
   led_set(alert ? 32 : 0, 0, alert ? 0 : 8);
 #endif
 }
@@ -613,8 +624,6 @@ void setup() {
     else Serial.printf("[BUF] MinBuf: cap=%u  %.1f KB\n", minCap, minCap * sizeof(MinRecord) / 1024.0f);
   }
 
-  if (PWR_ADC_PIN >= 0) analogSetPinAttenuation(PWR_ADC_PIN, ADC_11db);
-  if (BAT_ADC_PIN >= 0) analogSetPinAttenuation(BAT_ADC_PIN, ADC_11db);
 
   lfsOk = energyLogInit();
   errorLog("INFO", "Boot");
@@ -733,31 +742,39 @@ void loop() {
   static uint32_t lastSnapMs = 0;
   if (millis() - lastSnapMs >= SNAP_INTERVAL_S * 1000UL) { lastSnapMs = millis(); snapshotSave(secBuf, minBuf); }
 
-  if (PWR_ADC_PIN >= 0) {
-    static uint32_t lastPwrMs = 0; static uint8_t pwrLowCnt = 0; static bool pwrLostFired = false;
-    if (millis() - lastPwrMs >= 100) {
-      lastPwrMs = millis();
-      bool ok = (analogRead(PWR_ADC_PIN) >= PWR_LOSS_ADC);
-      if (!ok) {
-        if (++pwrLowCnt >= 3 && !pwrLostFired) {
-          pwrLostFired = true; gPwrOk = false;
-          errorLog("WARN", "Power loss — emergency snapshot");
-          mqttPublishEvent("power_loss", 0, 0);
-          snapshotSave(secBuf, minBuf);
-        }
-      } else {
-        if (!gPwrOk) { gPwrOk = true; errorLog("INFO", "Power restored"); mqttPublishEvent("power_restored", 0, 0); }
-        pwrLowCnt = 0; pwrLostFired = false;
-      }
-    }
-  }
-
+  // Battery + power detection — LilyGO only (BAT_ADC_PIN == -1 → skipped on S3-Zero)
   if (BAT_ADC_PIN >= 0) {
     static uint32_t lastBatMs = 0;
     if (millis() - lastBatMs >= 10000) {
       lastBatMs = millis();
+      int bat_mv = (int)analogReadMilliVolts(BAT_ADC_PIN) * 2;
+      gBatMv  = (int16_t)bat_mv;
       gBatPct = (int16_t)constrain(
-        (analogRead(BAT_ADC_PIN) - BAT_ADC_EMPTY) * 100 / (BAT_ADC_FULL - BAT_ADC_EMPTY), 0, 100);
+        (bat_mv - BAT_MV_EMPTY) * 100 / (BAT_MV_FULL - BAT_MV_EMPTY), 0, 100);
+
+      bool pwrNow = (bat_mv > BAT_MV_PWR_ON);
+      if (pwrNow != gPwrOk) {
+        gPwrOk = pwrNow;
+        if (gPwrOk) { errorLog("INFO", "Power restored"); mqttPublishEvent("power_restored", 0, 0); }
+        else { errorLog("WARN", "Power loss — on battery"); mqttPublishEvent("power_loss", 0, 0); snapshotSave(secBuf, minBuf); }
+      }
+
+      bool critNow = (bat_mv < BAT_MV_CRITICAL);
+      bool lowNow  = !critNow && (bat_mv < BAT_MV_LOW);
+      if (critNow && !gBatCritical) {
+        gBatCritical = true; gBatLow = false;
+        errorLog("CRIT", "Critical low battery");
+        mqttPublishEvent("bat_critical", 0, 0);
+        snapshotSave(secBuf, minBuf);
+      } else if (lowNow && !gBatLow) {
+        gBatLow = true;
+        errorLog("WARN", "Battery low");
+        mqttPublishEvent("bat_low", 0, 0);
+      } else if (!critNow && !lowNow && (gBatCritical || gBatLow)) {
+        gBatCritical = false; gBatLow = false;
+        errorLog("INFO", "Battery level OK");
+        mqttPublishEvent("bat_ok", 0, 0);
+      }
     }
   }
 

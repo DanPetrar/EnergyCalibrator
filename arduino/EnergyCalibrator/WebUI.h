@@ -33,7 +33,10 @@ extern float        prevBoxKwh[3];
 extern float        prevBoxKvarh[3];
 extern bool         lfsOk;
 extern int16_t      gBatPct;
+extern int16_t      gBatMv;
 extern bool         gPwrOk;
+extern bool         gBatLow;
+extern bool         gBatCritical;
 extern RingBuf<SecRecord> secBuf;
 extern RingBuf<MinRecord> minBuf;
 extern uint32_t energyStartTs;
@@ -283,6 +286,7 @@ td:first-child{text-align:left;font-weight:700;color:#7ec8e3;width:28px}
 <div class="sysrow"><span class="sl">Uptime</span><span class="sv" id="sys-uptime">&#8230;</span></div>
 <div class="sysrow" id="pwr-row" style="display:none"><span class="sl">Power</span><span class="sv" id="sys-pwr">&#8230;</span></div>
 <div class="sysrow" id="bat-row" style="display:none"><span class="sl">Battery</span><span class="sv" id="sys-bat">&#8230;</span></div>
+<div class="sysrow" id="bat-alert-row" style="display:none"><span class="sl"></span><span class="sv" id="bat-alert-sv"></span></div>
 <div class="btn-row" style="margin-top:12px">
   <button class="btn btn-warn" onclick="doResetCounters()">&#8635;&nbsp;Reset Counters</button>
   <button class="btn btn-warn" onclick="doEraseEnergy()" style="border-color:#6a1010;color:#e55">&#128465;&nbsp;Erase Energy History</button>
@@ -468,12 +472,26 @@ function loadSysinfo(){
     if(d.pwr_ok!==undefined){
       document.getElementById('pwr-row').style.display='';
       var pe=document.getElementById('sys-pwr');
-      pe.textContent=d.pwr_ok?'OK':'LOST';
-      pe.style.color=d.pwr_ok?'#5d5':'#e55';
+      pe.textContent=d.pwr_ok?'Connected':'Disconnected';
+      pe.style.color=d.pwr_ok?'#5d5':'#e90';
     }
     if(d.bat_pct!==undefined && d.bat_pct>=0){
       document.getElementById('bat-row').style.display='';
-      document.getElementById('sys-bat').textContent=d.bat_pct+'%';
+      var mv=d.bat_mv>0?(d.bat_mv/1000).toFixed(2)+'V':'';
+      document.getElementById('sys-bat').textContent=d.bat_pct+'%'+(mv?' — '+mv:'');
+    }
+    var alertRow=document.getElementById('bat-alert-row');
+    var alertSv=document.getElementById('bat-alert-sv');
+    if(d.bat_critical){
+      alertRow.style.display='';
+      alertSv.textContent='⚠ Critical Low Battery';
+      alertSv.style.color='#e55';
+    } else if(d.bat_low){
+      alertRow.style.display='';
+      alertSv.textContent='⚠ Battery Low';
+      alertSv.style.color='#e90';
+    } else {
+      alertRow.style.display='none';
     }
   });
 }
@@ -1006,8 +1024,11 @@ static void handleGetSysinfo() {
            (unsigned)((sec % 3600) / 60));
   doc["uptime_str"]     = buf;
   doc["mqtt_connected"] = mqtt.connected();
-  doc["bat_pct"]        = gBatPct;    // -1 if no battery ADC
+  doc["bat_pct"]        = gBatPct;      // -1 if no battery ADC
+  doc["bat_mv"]         = gBatMv;      // -1 if no battery ADC
   doc["pwr_ok"]         = gPwrOk;
+  doc["bat_low"]        = gBatLow;
+  doc["bat_critical"]   = gBatCritical;
 
   String out; serializeJson(doc, out);
   sendJson(200, out);
