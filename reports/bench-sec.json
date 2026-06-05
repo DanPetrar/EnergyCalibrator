@@ -1,0 +1,74 @@
+{
+  "uid": "bench-sec",
+  "title": "Bench - per second",
+  "refresh": "5s",
+  "time": {"from": "now-30m", "to": "now"},
+  "schemaVersion": 36,
+  "panels": [
+    {
+      "id": 1, "type": "timeseries",
+      "title": "Voltage V",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+      "fieldConfig": {"defaults": {"unit": "volt", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 1}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"power\" and r.unit==\"cal_E47730\" and r._field==\"v\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"},
+        {"refId": "B", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"cal_meter\" and r.unit==\"cal_E47730\" and r._field==\"v\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> map(fn:(r)=> ({r with phase:\"SDM\"}))\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"}
+      ]
+    },
+    {
+      "id": 2, "type": "timeseries",
+      "title": "Current A",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+      "fieldConfig": {"defaults": {"unit": "amp", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 1}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"power\" and r.unit==\"cal_E47730\" and r._field==\"a\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"},
+        {"refId": "B", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"cal_meter\" and r.unit==\"cal_E47730\" and r._field==\"a\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> map(fn:(r)=> ({r with phase:\"SDM\"}))\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"}
+      ]
+    },
+    {
+      "id": 3, "type": "timeseries",
+      "title": "Power W",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+      "fieldConfig": {"defaults": {"unit": "watt", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"power\" and r.unit==\"cal_E47730\" and r._field==\"w\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"},
+        {"refId": "B", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"cal_meter\" and r.unit==\"cal_E47730\" and r._field==\"w\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> map(fn:(r)=> ({r with phase:\"SDM\"}))\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"}
+      ]
+    },
+    {
+      "id": 4, "type": "timeseries",
+      "title": "Power Factor",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+      "fieldConfig": {"defaults": {"unit": "none", "min": 0, "max": 1, "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 1}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"power\" and r.unit==\"cal_E47730\" and r._field==\"pf\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"},
+        {"refId": "B", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"cal_meter\" and r.unit==\"cal_E47730\" and r._field==\"pf\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> map(fn:(r)=> ({r with phase:\"SDM\"}))\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"}
+      ]
+    },
+    {
+      "id": 5, "type": "timeseries",
+      "title": "Frequency Hz",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+      "fieldConfig": {"defaults": {"unit": "hertz", "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 1}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"power\" and r.unit==\"cal_E47730\" and r._field==\"hz\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"},
+        {"refId": "B", "datasource": {"type": "influxdb", "uid": "ffnbf64waxe68a"},
+          "query": "from(bucket:\"zaxenergy\")\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n|> filter(fn:(r)=> r._measurement==\"cal_meter\" and r.unit==\"cal_E47730\" and r._field==\"hz\")\n|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty:false)\n|> map(fn:(r)=> ({r with phase:\"SDM\"}))\n|> keep(columns:[\"_time\",\"_value\",\"phase\"])"}
+      ]
+    }
+  ]
+}
