@@ -419,6 +419,7 @@ class Handler(BaseHTTPRequestHandler):
             if sessions else '<p class="empty">No sessions yet.</p>')
 
         pdfs = sorted([f for f in os.listdir(REPORTS_DIR) if f.endswith('.pdf')],
+                      key=lambda f: os.path.getmtime(os.path.join(REPORTS_DIR, f)),
                       reverse=True)
         prows = ''.join(
             f'<tr><td><input type="checkbox" name="f" value="{f}"></td>'
