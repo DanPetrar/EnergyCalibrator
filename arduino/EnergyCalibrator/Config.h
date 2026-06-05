@@ -38,7 +38,7 @@ struct MeterRecord {        // SDM630 reading (R phase = reference)
 // ── device configuration ──────────────────────────────────────────────────────
 
 #define CFG_NVS    "cal"
-#define FW_VERSION "1.0.6"
+#define FW_VERSION "1.0.7"
 #define DATA_VERSION 1
 
 #define BUF_MODE_LTE 0
@@ -49,6 +49,7 @@ struct ZaxConfig {
   char     memo[64];
   char     ssid[64];
   char     pass[64];
+  char     ap_pass[32];     // AP mode password (default ZaxEnergy-123)
   char     sta_ip[16];
   char     ntp_srv[64];
   int16_t  tz_offset;
@@ -91,6 +92,7 @@ static void cfgDefaults(ZaxConfig& c) {
   c.memo[0]      = '\0';
   c.ssid[0]      = '\0';
   c.pass[0]      = '\0';
+  strncpy(c.ap_pass, "ZaxEnergy-123", sizeof(c.ap_pass) - 1);
   c.sta_ip[0]    = '\0';
   strncpy(c.ntp_srv, "pool.ntp.org", sizeof(c.ntp_srv) - 1);
   c.tz_offset    = 0;
@@ -130,6 +132,7 @@ static void loadConfig(ZaxConfig& c) {
   gs("memo",       c.memo,       sizeof(c.memo));
   gs("ssid",       c.ssid,       sizeof(c.ssid));
   gs("pass",       c.pass,       sizeof(c.pass));
+  gs("ap_pass",    c.ap_pass,    sizeof(c.ap_pass));
   gs("sta_ip",     c.sta_ip,     sizeof(c.sta_ip));
   gs("ntp_srv",    c.ntp_srv,    sizeof(c.ntp_srv));
   c.tz_offset = (int16_t)p.getInt("tz_offset", 0);
@@ -165,6 +168,7 @@ static void saveConfig(const ZaxConfig& c) {
   p.putString("memo",       c.memo);
   p.putString("ssid",       c.ssid);
   p.putString("pass",       c.pass);
+  p.putString("ap_pass",    c.ap_pass);
   p.putString("ntp_srv",    c.ntp_srv);
   p.putInt   ("tz_offset",  c.tz_offset);
   p.putBool  ("mqtt_en",    c.mqtt_en);

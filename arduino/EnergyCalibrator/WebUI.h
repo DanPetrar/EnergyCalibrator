@@ -37,6 +37,7 @@ extern int16_t      gBatMv;
 extern bool         gPwrOk;
 extern bool         gBatLow;
 extern bool         gBatCritical;
+extern bool         gBootResetWarn;
 extern RingBuf<SecRecord> secBuf;
 extern RingBuf<MinRecord> minBuf;
 extern uint32_t energyStartTs;
@@ -125,7 +126,8 @@ td:first-child{text-align:left;font-weight:700;color:#7ec8e3;width:28px}
 <div class="status-bar sb-warn" id="net-status"><span>Loading&#8230;</span></div>
 <div class="cfg-grid">
   <div class="pr"><label>SSID &mdash; <small style="color:#556">empty&nbsp;=&nbsp;AP&nbsp;only</small></label><input name="ssid" type="text" maxlength="63"></div>
-  <div class="pr"><label>Password</label><input name="pass" type="password" maxlength="63" placeholder="blank = keep current"></div>
+  <div class="pr"><label>WiFi Password</label><input name="pass" type="password" maxlength="63" placeholder="blank = keep current"></div>
+  <div class="pr"><label>AP Password <small style="color:#556">min&nbsp;8&nbsp;chars</small></label><input name="ap_pass" type="password" maxlength="31" placeholder="blank = keep current"></div>
 </div>
 <div class="btn-row">
   <button class="btn btn-ok" onclick="saveWifi()">&#128190;&nbsp;Save WiFi</button>
@@ -502,7 +504,11 @@ function postCfg(d,cb){
     .then(function(r){showMsg(r.msg||'Saved','ok');if(cb)cb();})
     .catch(function(){showMsg('Error saving','err');});
 }
-function saveWifi()  { postCfg({ssid:F('ssid'), pass:F('pass')}); }
+function saveWifi()  {
+  var ap=F('ap_pass');
+  if(ap.length>0 && ap.length<8){showMsg('AP Password must be at least 8 characters','err');return;}
+  postCfg({ssid:F('ssid'), pass:F('pass'), ap_pass:ap});
+}
 function saveNtp()   { postCfg({ntp_srv:F('ntp_srv'), tz_offset:+F('tz_offset'), man_time_str:F('man_time_str')}, function(){setTimeout(loadNet,2000);}); }
 function saveMqtt()  { postCfg({mqtt_en:document.getElementById('mq_en').checked, mqtt_host:F('mqtt_host'), mqtt_port:+F('mqtt_port'), mqtt_user:F('mqtt_user'), mqtt_pass:F('mqtt_pass'), mqtt_topic:F('mqtt_topic')}); }
 function saveDeviceSetup(){ postCfg({dev_name:F('dev_name'), memo:F('memo'), buf_mode:+document.getElementById('buf-mode').value}); }
@@ -826,6 +832,13 @@ static void handlePostConfig() {
     String newPass = doc["pass"].as<const char*>();
     if (newPass.length() > 0) {
       gs("pass", cfg.pass, sizeof(cfg.pass));
+      wifiChanged = true;
+    }
+  }
+  if (doc["ap_pass"].is<const char*>()) {
+    String newAp = doc["ap_pass"].as<const char*>();
+    if (newAp.length() >= 8) {
+      gs("ap_pass", cfg.ap_pass, sizeof(cfg.ap_pass));
       wifiChanged = true;
     }
   }

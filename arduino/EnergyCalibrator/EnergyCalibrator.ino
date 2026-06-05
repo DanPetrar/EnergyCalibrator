@@ -53,7 +53,7 @@
   #define BOX Serial1
 #endif
 
-#define AP_PASS    "CalEnergy-123"
+#define AP_PASS_DEFAULT "ZaxEnergy-123"  // used only if cfg.ap_pass is empty
 #define AP_IP_1    192
 #define AP_IP_2    168
 #define AP_IP_3    99
@@ -88,6 +88,7 @@ int16_t      gBatMv             = -1;
 bool         gPwrOk             = true;
 bool         gBatLow            = false;
 bool         gBatCritical       = false;
+bool         gBootResetWarn     = false; // true while BOOT held 5–8 s
 FaultState   faults             = {};
 bool         gFaultChanged      = false;
 bool         bootGraceDone      = false;
@@ -157,6 +158,7 @@ static void led_set(uint8_t r, uint8_t g, uint8_t b) {
 }
 static void led_flash(uint8_t r, uint8_t g, uint8_t b) { (void)r; (void)g; (void)b; }
 static void ledLoop() {
+  if (gBootResetWarn) return;
   uint32_t now   = millis();
   bool wifiOk    = (WiFi.status() == WL_CONNECTED);
   bool mqttOk    = mqtt.connected();
@@ -183,16 +185,50 @@ static void ledLoop() {
 #else  // S3-Zero — NeoPixel
 
 Adafruit_NeoPixel led(LED_COUNT, LED_PIN, NEO_RGB + NEO_KHZ800);
+static void led_force(uint8_t r, uint8_t g, uint8_t b) {
+  led.setPixelColor(0, led.Color(r, g, b)); led.show();
+}
 static void led_set(uint8_t r, uint8_t g, uint8_t b) {
-  led.setPixelColor(0, led.Color(r, g, b));
-  led.show();
+  if (gBootResetWarn) return;
+  led_force(r, g, b);
 }
 static void led_flash(uint8_t r, uint8_t g, uint8_t b) { led_set(r, g, b); delay(80); }
 
 #endif  // BOARD_LILYGO_T7S3
 
+// BOOT button (GPIO0): hold 5 s → rapid blink warning; hold 3 more s → NVS erase + reboot
+static void checkBootButton() {
+  static uint32_t pressStart = 0;
+  bool pressed = (digitalRead(0) == LOW);
+  if (!pressed) { pressStart = 0; gBootResetWarn = false; return; }
+  if (pressStart == 0) pressStart = millis();
+  uint32_t held = millis() - pressStart;
+  if (held >= 8000) {
+#if defined(BOARD_LILYGO_T7S3)
+    digitalWrite(LED_PIN, HIGH);
+#else
+    led_force(180, 0, 0);
+#endif
+    delay(500);
+    Preferences p; p.begin(CFG_NVS, false); p.clear(); p.end();
+    WiFi.disconnect(true, true);
+    delay(200);
+    ESP.restart();
+  }
+  gBootResetWarn = (held >= 5000);
+  if (gBootResetWarn) {
+    bool on = (millis() / 100) % 2;
+#if defined(BOARD_LILYGO_T7S3)
+    digitalWrite(LED_PIN, on ? HIGH : LOW);
+#else
+    led_force(on ? 180 : 0, 0, 0);
+#endif
+  }
+}
+
 static void ledIdle() {
 #if !defined(BOARD_LILYGO_T7S3)   // LilyGO: ledLoop() drives state; S3-Zero: set NeoPixel
+  if (gBootResetWarn) return;
   bool alert = faults.commLost;
   for (int i = 0; i < 3; i++) {
     if (faults.voltState[i] == 1 || faults.voltState[i] == 3) alert = true;
@@ -540,7 +576,8 @@ static void wifiSetup() {
   IPAddress apIP(AP_IP_1, AP_IP_2, AP_IP_3, AP_IP_4);
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP(apSSID.c_str(), AP_PASS);
+  const char* apPass = (cfg.ap_pass[0] != '\0') ? cfg.ap_pass : AP_PASS_DEFAULT;
+  WiFi.softAP(apSSID.c_str(), apPass);
   Serial.printf("[WIFI] AP: %s  IP: %s\n", apSSID.c_str(), apIP.toString().c_str());
 
   if (strlen(cfg.ssid) > 0) {
@@ -589,8 +626,10 @@ void setup() {
 #if defined(BOARD_LILYGO_T7S3)
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+  pinMode(0, INPUT_PULLUP);  // BOOT button — factory reset
 #else
   led.begin();
+  pinMode(0, INPUT_PULLUP);  // BOOT button — factory reset
   led.setBrightness(48);
 #endif
   ledIdle();
@@ -665,12 +704,13 @@ void setup() {
   esp_task_wdt_reset();
   Serial.printf("[WDT] Task watchdog armed: %ds\n", WDT_TIMEOUT_S);
 
-  Serial.printf("[BOOT] AP=%s  STA=%s  PASS=%s\n", apSSID.c_str(), cfg.sta_ip, AP_PASS);
+  Serial.printf("[BOOT] AP=%s  STA=%s\n", apSSID.c_str(), cfg.sta_ip);
   ledIdle();
 }
 
 void loop() {
   esp_task_wdt_reset();
+  checkBootButton();
 #if defined(BOARD_LILYGO_T7S3)
   ledLoop();
 #endif
