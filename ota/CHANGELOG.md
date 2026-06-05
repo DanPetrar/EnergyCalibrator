@@ -1,5 +1,38 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.6 — 2026-06-05
+
+**Files:** `EnergyCalibrator_v1.0.6_lilygo.bin` · `EnergyCalibrator_v1.0.6_s3zero.bin`
+
+- **Battery conventions — LilyGO only** (S3-Zero has no ADC; all ADC code skipped via `BAT_ADC_PIN=-1`):
+  - BAT_ADC_PIN: 4 → 2 (GPIO2 is the actual battery ADC on T7-S3, R1=R2=100k divider)
+  - `analogReadMilliVolts(2) × 2` replaces raw `analogRead` + stale constants
+  - `bat_mv` added to `/api/sysinfo`
+  - Power detection: `bat_mv > 4800` → USB Connected; below → Disconnected
+  - Battery Low: `bat_mv < 3200` → MQTT `bat_low` + UI `⚠ Battery Low`
+  - Critical Low: `bat_mv < 2850` → MQTT `bat_critical` + Error LED + UI `⚠ Critical Low Battery`
+  - Recovery fires MQTT `bat_ok`
+  - `/api/sysinfo` adds `bat_mv`, `bat_low`, `bat_critical`; Power row shows Connected/Disconnected
+- **LilyGO LED redesign** — 3-state (IDLE/DATA/FAULT) → 4-state diagnostic patterns (same as ZaxMonitor v1.1.8):
+  - **OK**: single 100 ms flash, 3 s period
+  - **MQTT down**: double 100 ms flash, 3 s period
+  - **No data** (no box OR no SDM): double 500 ms flash, 2 s period
+  - **Error**: 1 s ON / 500 ms OFF, continuous — fires on no WiFi, 2+ bad conditions, or `bat_critical`
+  - `ledIdle()` retained for S3-Zero NeoPixel; LilyGO LED fully driven by `ledLoop()`
+- S3-Zero: no functional change.
+
+---
+
+## v1.0.5 — 2026-06-03
+
+**Files:** `EnergyCalibrator_v1.0.5_lilygo.bin` · `EnergyCalibrator_v1.0.5_s3zero.bin`
+
+- **LilyGO LED fix** — plain GPIO + priority blink state machine (same as ZaxMonitor v1.1.7).
+  GPIO17 on T7-S3 is a single-color LED, not NeoPixel; replaced `Adafruit_NeoPixel` with
+  `digitalWrite` under `#if defined(BOARD_LILYGO_T7S3)`. S3-Zero NeoPixel path unchanged.
+
+---
+
 ## v1.0.4 — 2026-06-03
 
 - Add Waveshare ESP32-S3-Zero board support (build_s3zero.sh):

@@ -136,3 +136,14 @@ See `energy-audit.md`.
 - **DB looked 33 MB after deleting 89% of rows + VACUUM.** The size was uncheckpointed WAL. `PRAGMA wal_checkpoint(TRUNCATE)` then `VACUUM` brought the main file to 3.4 MB.
 
 **No data lost:** Unit D buffers/replays on broker switch, and `INSERT OR REPLACE` (PK `ts,unit`) makes reconciliation merges idempotent. A final VACUUM-INTO snapshot+merge swept the switch-window seconds.
+
+---
+
+### 2026-06-05 — LilyGO T7-S3 battery ADC: wrong pin (GPIO4) and wrong multiplier
+
+**Context:** Battery connected to Unit D (LilyGO T7-S3, ZaxMonitor). Web UI showed 0% / 792 mV; multimeter measured 3.99V.
+
+- **Root cause (1) — wrong pin:** Firmware had `BAT_ADC_PIN = 4` (GPIO4). GPIO4 is not connected to the battery voltage divider on the T7-S3. Official board example uses GPIO2. GPIO4 floated near 0V, giving a near-zero reading regardless of battery state.
+- **Root cause (2) — wrong multiplier:** After fixing pin to GPIO2 with USB connected, the ×320/220 formula (assumed R1=100k/R2=220k) appeared to give a correct ~3.87V reading — but only because USB charges via the same node, and the formula happened to reduce the ~5V charging rail to a battery-like value by coincidence. With USB disconnected and battery at 3.87V, the same formula gave 2.83V. Actual divider is R1=R2=100k (×2): 3.87V → 1.94V at ADC → ×2 = 3.88V ✓.
+- **Fix (v1.0.6):** `BAT_ADC_PIN = 2`; `analogReadMilliVolts(pin) * 2`; thresholds in mV rather than raw ADC counts.
+- **Prevention:** Always disconnect USB before calibrating a battery ADC formula. The USB charging rail on GPIO2 contaminates readings and can make a wrong multiplier appear correct.
