@@ -140,6 +140,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._stop()
         if path == 'sessions/change_unit':
             return self._change_unit()
+        if path == 'reports/delete':
+            return self._delete_reports(form)
         m = re.fullmatch(r'sessions/(\d+)/(report|partial)', path)
         if m:
             return self._gen(int(m.group(1)), partial=(m.group(2) == 'partial'))
@@ -419,13 +421,22 @@ class Handler(BaseHTTPRequestHandler):
         pdfs = sorted([f for f in os.listdir(REPORTS_DIR) if f.endswith('.pdf')],
                       reverse=True)
         prows = ''.join(
-            f'<tr><td><a href="/{f}">{f}</a></td>'
+            f'<tr><td><input type="checkbox" name="f" value="{f}"></td>'
+            f'<td><a href="/{f}">{f}</a></td>'
             f'<td>{os.path.getsize(os.path.join(REPORTS_DIR, f)) // 1024} kB</td>'
             f'<td>{_fmt(os.path.getmtime(os.path.join(REPORTS_DIR, f)))}</td></tr>'
             for f in pdfs)
-        pdf_table = ('<table><tr><th>File</th><th>Size</th><th>Generated</th></tr>'
-                     + prows + '</table>' if pdfs
-                     else '<p class="empty">No reports yet.</p>')
+        if pdfs:
+            pdf_table = (
+                '<form method="post" action="/reports/delete">'
+                '<table><tr><th></th><th>File</th><th>Size</th><th>Generated</th></tr>'
+                + prows +
+                '</table>'
+                '<button style="margin-top:8px;color:#fff;background:#a00;border:none;'
+                'padding:6px 16px;cursor:pointer;border-radius:4px">'
+                'Delete selected</button></form>')
+        else:
+            pdf_table = '<p class="empty">No reports yet.</p>'
 
         return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>EnergyCalibrator Bench</title>
@@ -469,6 +480,15 @@ class Handler(BaseHTTPRequestHandler):
 <h2>Reports</h2>
 {pdf_table}
 </div></body></html>"""
+
+    def _delete_reports(self, form):
+        for name in form.get('f', []):
+            safe = os.path.basename(name)
+            if safe.endswith('.pdf'):
+                fpath = os.path.join(REPORTS_DIR, safe)
+                if os.path.isfile(fpath):
+                    os.remove(fpath)
+        return self._redirect('/')
 
     def _report_cell(self, s):
         partial_dl = (f' <a href="/{s["partial"]}">partial</a>'
