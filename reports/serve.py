@@ -27,6 +27,8 @@ PORT        = 8080
 CAL_DB      = os.environ.get('CAL_DB', '/workspace/cal-data/cal_data.db')
 GEN_REPORT  = os.path.join(HERE, '..', 'report', 'generate_report.py')
 GRAFANA     = 'http://192.168.110.11:3000/d/bench-calib/'
+GRAFANA_BASE = 'http://192.168.110.11:3000'
+ZAX_UNITS   = ['Unit_A', 'Unit_B', 'Unit_C', 'Unit_D']
 
 SAFE_RE = re.compile(r'[^A-Za-z0-9._-]+')
 
@@ -117,6 +119,8 @@ class Handler(BaseHTTPRequestHandler):
             if os.path.isfile(fpath):
                 return self._send_file(fpath)
             return self._send(404, 'text/plain', b'Not found')
+        if path == 'zax':
+            return self._send(200, 'text/html', self._zax_page().encode())
         return self._send(200, 'text/html', self._index().encode())
 
     # ---- POST --------------------------------------------------------------
@@ -261,6 +265,65 @@ class Handler(BaseHTTPRequestHandler):
         conn.close()
         return self._redirect('/')
 
+    # ---- nav / pages -------------------------------------------------------
+    _NAV_STYLE = """
+  .nav { background:#1a2a40; padding:0 20px; display:flex; align-items:center; gap:4px;
+         position:sticky; top:0; z-index:10; }
+  .nav a { color:#8ab4d4; text-decoration:none; padding:10px 16px; font-size:0.9em;
+           border-bottom:3px solid transparent; }
+  .nav a:hover { color:#fff; }
+  .nav a.active { color:#fff; border-bottom-color:#5ba3d4; }
+  .nav .brand { color:#5ba3d4; font-weight:bold; font-size:1em;
+                padding:10px 16px 10px 0; margin-right:8px; border-right:1px solid #2a3a50; }
+"""
+
+    def _nav(self, active):
+        return (f'<nav class="nav">'
+                f'<span class="brand">&#9889; ZaxEnergy</span>'
+                f'<a href="/zax" class="{"active" if active=="zax" else ""}">ZaxEnergy</a>'
+                f'<a href="/" class="{"active" if active=="cal" else ""}">EnergyCalibrator</a>'
+                f'</nav>')
+
+    def _zax_page(self):
+        unit_btns = ''.join(
+            f'<a href="{GRAFANA_BASE}/d/zax-power/?var-unit={u}" target="_blank" '
+            f'class="chart-btn">{u}</a>'
+            for u in ZAX_UNITS)
+        return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>ZaxEnergy</title>
+<style>
+  body {{ font-family: sans-serif; margin: 0; color: #222; }}
+  h1, h2 {{ color: #2a4060; margin-left: 0; }}
+  .page {{ max-width: 900px; margin: 40px auto; padding: 0 20px; }}
+  .card {{ border: 1px solid #dde; border-radius: 8px; padding: 20px 24px;
+           margin-bottom: 24px; }}
+  .card h2 {{ margin-top: 0; font-size: 1.1em; }}
+  .chart-btn {{ display: inline-block; padding: 8px 20px; margin: 4px 6px 4px 0;
+               background: #2a4060; color: #fff; border-radius: 5px;
+               text-decoration: none; font-size: 0.95em; }}
+  .chart-btn:hover {{ background: #3a5a80; }}
+  .chart-link {{ display: inline-block; padding: 8px 20px; margin: 4px 0;
+                background: #2a7040; color: #fff; border-radius: 5px;
+                text-decoration: none; font-size: 0.95em; }}
+  .chart-link:hover {{ background: #3a9060; }}
+  {self._NAV_STYLE}
+</style></head><body>
+{self._nav('zax')}
+<div class="page">
+<h1>ZaxEnergy</h1>
+<div class="card">
+  <h2>Power &#8594; Grafana</h2>
+  <p>Select unit to open the power dashboard:</p>
+  {unit_btns}
+</div>
+<div class="card">
+  <h2>Energy &#8594; Grafana</h2>
+  <a href="{GRAFANA_BASE}/d/zax-energy/" target="_blank" class="chart-link">
+    Open Energy dashboard &#8599;
+  </a>
+</div>
+</div></body></html>"""
+
     # ---- index page --------------------------------------------------------
     def _index(self):
         conn = db()
@@ -367,8 +430,9 @@ class Handler(BaseHTTPRequestHandler):
 <html><head><meta charset="utf-8"><title>EnergyCalibrator Bench</title>
 {head_extra}
 <style>
-  body {{ font-family: sans-serif; max-width: 900px; margin: 40px auto; color: #222; }}
-  h1, h2 {{ color: #2a4060; }}
+  body {{ font-family: sans-serif; margin: 0; color: #222; }}
+  .page {{ max-width: 900px; margin: 40px auto; padding: 0 20px; }}
+  h1, h2 {{ color: #2a4060; }}{self._NAV_STYLE}
   table {{ border-collapse: collapse; width: 100%; margin-bottom: 28px; }}
   th {{ background: #2a4060; color: #fff; padding: 8px 12px; text-align: left; }}
   td {{ padding: 7px 12px; border-bottom: 1px solid #ddd; }}
@@ -383,6 +447,8 @@ class Handler(BaseHTTPRequestHandler):
   .startform input {{ padding: 4px 6px; }}
   button {{ padding: 5px 14px; margin-left: 10px; cursor: pointer; }}
 </style></head><body>
+{self._nav('cal')}
+<div class="page">
 <h1>EnergyCalibrator Bench</h1>
 {unit_html}
 {err_html}
@@ -391,7 +457,7 @@ class Handler(BaseHTTPRequestHandler):
 {sess_table}
 <h2>Reports</h2>
 {pdf_table}
-</body></html>"""
+</div></body></html>"""
 
     def _report_cell(self, s):
         partial_dl = (f' <a href="/{s["partial"]}">partial</a>'
