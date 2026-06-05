@@ -26,7 +26,8 @@ PORT        = 8080
 # must pass --db explicitly. Override with CAL_DB if needed.
 CAL_DB      = os.environ.get('CAL_DB', '/workspace/cal-data/cal_data.db')
 GEN_REPORT  = os.path.join(HERE, '..', 'report', 'generate_report.py')
-GRAFANA     = 'http://192.168.110.11:3000/d/bench-calib/'
+GRAFANA      = 'http://192.168.110.11:3000/d/bench-calib/'
+GRAFANA_SEC  = 'http://192.168.110.11:3000/d/bench-sec/'
 GRAFANA_BASE = 'http://192.168.110.11:3000'
 ZAX_UNITS   = ['Unit_A', 'Unit_B', 'Unit_C', 'Unit_D']
 
@@ -446,6 +447,11 @@ class Handler(BaseHTTPRequestHandler):
   .startform label {{ margin-right: 16px; }}
   .startform input {{ padding: 4px 6px; }}
   button {{ padding: 5px 14px; margin-left: 10px; cursor: pointer; }}
+  .grafana-links {{ margin: 0 0 20px; display: flex; gap: 12px; align-items: center; }}
+  .grafana-links span {{ color: #888; font-size: 0.9em; }}
+  .grafana-links a {{ background: #1f4e79; color: #fff; padding: 5px 14px;
+                      border-radius: 4px; font-size: 0.9em; text-decoration: none; }}
+  .grafana-links a:hover {{ background: #2e6da4; }}
 </style></head><body>
 {self._nav('cal')}
 <div class="page">
@@ -453,6 +459,11 @@ class Handler(BaseHTTPRequestHandler):
 {unit_html}
 {err_html}
 {top}
+<div class="grafana-links">
+  <span>Grafana:</span>
+  <a href="{GRAFANA}" target="_blank">Bench - calibration</a>
+  <a href="{GRAFANA_SEC}" target="_blank">Bench - per second</a>
+</div>
 <h2>Sessions</h2>
 {sess_table}
 <h2>Reports</h2>
