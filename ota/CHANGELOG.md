@@ -1,5 +1,21 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.7 — 2026-06-05
+
+**Files:** `EnergyCalibrator_v1.0.7_lilygo.bin` · `EnergyCalibrator_v1.0.7_s3zero.bin`
+
+- **BOOT button factory reset (GPIO0, both boards):**
+  - Hold 5 s → LED rapid blink (100 ms on/off) — warning phase
+  - Hold 3 s more (8 s total) → LED solid → NVS namespace cleared + WiFi credentials erased + reboot
+  - Release before 8 s → abort, normal operation resumes
+  - LilyGO: `ledLoop()` gated during warn; S3-Zero: `led_set()` gated, `led_force()` for direct writes
+- **Configurable AP password** (`ap_pass`, NVS key, default `ZaxEnergy-123`):
+  - WiFi Config section: "WiFi Password" + "AP Password" fields (blank = keep current, min 8 chars)
+  - AP password resets to `ZaxEnergy-123` on factory reset
+- **Reports list** sorted by modification time, newest first (was alphabetical).
+
+---
+
 ## v1.0.6 — 2026-06-05
 
 **Files:** `EnergyCalibrator_v1.0.6_lilygo.bin` · `EnergyCalibrator_v1.0.6_s3zero.bin`
