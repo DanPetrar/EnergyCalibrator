@@ -12,7 +12,7 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') generating report for $YESTERDAY" >> "$LOG"
 
 python3 "$SCRIPT_DIR/generate_report.py" \
     --date "$YESTERDAY" \
-    --unit cal_F07F8C \
+    --unit cal_E47730 \
     >> "$LOG" 2>&1
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') done" >> "$LOG"
