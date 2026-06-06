@@ -12,7 +12,7 @@ Usage:
                              [--date YYYY-MM-DD | --all]
 """
 
-import argparse, sqlite3, os, sys
+import argparse, sqlite3, os, sys, re
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -457,10 +457,11 @@ def main():
         period_label = day.strftime('%Y-%m-%d')
 
     if args.out is None:
-        safe = period_label[:10].replace('-', '')
-        hms  = datetime.now().strftime('%H%M%S')
+        safe_unit   = re.sub(r'[^a-zA-Z0-9_-]+', '-', unit_label).strip('-')
+        safe_period = period_label[:10].replace('-', '')
+        hms         = datetime.now().strftime('%H%M%S')
         os.makedirs(REPORTS, exist_ok=True)
-        args.out = os.path.join(REPORTS, f'report_{safe}_{hms}.pdf')
+        args.out = os.path.join(REPORTS, f'report_{safe_unit}_{safe_period}_{hms}.pdf')
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 
