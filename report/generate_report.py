@@ -330,25 +330,29 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
                         row_styles=rank_styles))
     story.append(Spacer(1, 0.12*cm))
 
-    # ── Section 2: Hourly Summary (energy counters only) ──────────────────────
-    # CT dev columns here are per-hour energy-counter deviations (dkWh), not
-    # snapshot comparisons — they stay.
+    # ── Section 2: Hourly Summary (cumulative deviation) ─────────────────────
+    # CT dev columns show cumulative deviation from session start to end of each
+    # hour. Denominator grows each hour, suppressing per-hour quantization noise.
+    # The last row always equals the header KPI value.
     story.append(Paragraph('Hourly Summary', S['H2']))
     sum_hdr = ['Hour', 'SDM630 avg (W)', 'SDM630 (kWh)',
-               'CT-R dev', 'CT-S dev', 'CT-T dev', 'Peak (W)', 'Cover (%)']
-    sum_rows  = [sum_hdr]
+               'CT-R dev (Σ)', 'CT-S dev (Σ)', 'CT-T dev (Σ)', 'Peak (W)', 'Cover (%)']
+    sum_rows   = [sum_hdr]
     sum_styles = []
+    cumul_ct  = {'R': 0.0, 'S': 0.0, 'T': 0.0}
+    cumul_sdm = 0.0
     for h in hours:
         hrs  = mbh.get(h, [])
         sec  = sec_hourly.get(h, {})
         en   = hour_energy(hrs)
         sdms = hour_sdm_stats(hrs)
+        for ch in ('R', 'S', 'T'):
+            cumul_ct[ch] += en[ch]
+        cumul_sdm += en['SDM']
         devs = {}
         for ch in ('R', 'S', 'T'):
-            # guard divide-by-zero on the SDM total only; en[ch] may legitimately
-            # be 0.0 (a CT reading no energy that hour → a real deviation).
-            devs[ch] = (en[ch] - en['SDM']) / en['SDM'] * 100 \
-                       if en['SDM'] else None
+            devs[ch] = (cumul_ct[ch] - cumul_sdm) / cumul_sdm * 100 \
+                       if cumul_sdm else None
         peak = max((sec.get(f'{ch}_w_max', 0) for ch in ('R','S','T')), default=None)
         cov  = int(sec.get('n', 0) * 100 // 3600)
         ri   = len(sum_rows)
