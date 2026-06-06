@@ -248,9 +248,12 @@ Prints a 30-min snapshot to the terminal:
 **Requires:** `reportlab` — installed in the Workstation venv (`/workspace/projects/EnergyCalibrator/.venv`)  
 **Usage:**
 ```bash
-python3 report/generate_report.py --date YYYY-MM-DD --unit cal_E47730
-python3 report/generate_report.py --all --unit cal_E47730
+python3 report/generate_report.py --date YYYY-MM-DD --unit cal_E47730 --serial PS-1053
+python3 report/generate_report.py --all --unit cal_E47730 --serial PS-1053
+python3 report/generate_report.py --segments a-b,c-d --serial PS-1053  # session report
 ```
+`--serial` — DUT box serial number; included in PDF header and output filename.  
+`--unit` — optional; if omitted, derived from distinct units in the selected time window.
 
 ### Energy methodology
 
@@ -266,12 +269,16 @@ Energy-counter (dkWh) views only — the snapshot-based comparison sections were
 removed (2026-06-01) because they mix CT per-second and SDM per-minute snapshots
 and can produce misleading percentages:
 
-1. **Day Overview** — KPI boxes (SDM + CT-R/S/T with sensor model) and CT ranking table (ranked by absolute energy deviation; assessment Best/Good/Needs-calibration)
-2. **Hourly Summary** — one row per hour: SDM avg W, SDM kWh, CT-R/S/T energy deviation (colour coded), peak W, coverage %. *(CT dev here is per-hour `dkwh`, not a snapshot comparison — retained.)*
+1. **Day Overview** — KPI boxes (SDM + CT-R/S/T with sensor model) and CT ranking table (ranked by absolute energy deviation; CT mean W column uses CT source; assessment Best/Good/Needs-calibration)
+2. **Hourly Summary** — one row per hour: SDM avg W, SDM kWh, **CT-R/S/T dev (Σ)** (colour coded), peak W, coverage %.
+   - Dev columns show **cumulative deviation from report start to end of that hour** — not per-hour. The denominator grows each hour, suppressing per-hour quantization noise (~±1 Wh/min). The last row always equals the header KPI.
+   - Coverage % is computed against the actual elapsed seconds for partial first/last hours (bounded by window start/end and wall-clock now); only complete hours are flagged yellow for low coverage.
 3. **Sensor footnote** — CT-R: TDK 30A · CT-S: TDK 80A · CT-T: YHDC 120A
 
 **Removed:** ~~All-day Measurement Statistics~~ and ~~Deviation by Load Band~~
 (snapshot-based; can be reintroduced with a corrected methodology later).
+
+**Title:** "Session Report" when `--serial` is provided; "Daily Report" for daily cron output.
 
 Deviation thresholds: green < 3%, yellow 3–6%, red > 6%. Ranking/assessment use
 an explicit None-check (`abs(d) if d is not None else 999`) — **never** the
@@ -284,7 +291,7 @@ regression tests: `report/tests/test_report_data.py`.
 
 **Script:** `report/daily_report.sh`  
 **Cron:** `5 0 * * *` (in the Workstation `dan-linux` crontab) — generates report for previous calendar day automatically. On the Workstation the cron runs `/workspace/cal-data/ws_daily_report.sh`, a thin wrapper that calls `generate_report.py --db /workspace/cal-data/cal_data.db` with the venv python.  
-**Output:** `/workspace/projects/EnergyCalibrator/reports/report_YYYYMMDD_HHMMSS.pdf`  
+**Output:** `/workspace/projects/EnergyCalibrator/reports/report_{serial}_{YYYYMMDD}_{HHMMSS}.pdf`  
 **Log:** `reports/cron.log`
 
 ### Report web server
@@ -292,6 +299,7 @@ regression tests: `report/tests/test_report_data.py`.
 **File:** `reports/serve.py`  
 **Service:** systemd `cal_reports.service` on the Workstation (port 8080, auto-starts)  
 **URL:** http://192.168.110.11:8080/  
+**⚠ Restart required after code changes:** `sudo systemctl restart cal_reports.service` — Python does not hot-reload.
 
 Lists all available PDFs with download links, plus the **bench session UI** (§7c).
 
@@ -324,7 +332,7 @@ the table/index on startup.
 | GET  | `/` | Index: running banner + Stop, Start form, sessions table, PDF list |
 | POST | `/sessions/start` | `serial` (+`notes`); creates running session (`start_ts=now`); 409-equivalent redirect if one already running |
 | POST | `/sessions/stop` | Closes the running session (`stop_ts=now`, `status='stopped'`) |
-| POST | `/sessions/<id>/report` | Runs `generate_report.py` for the session window → `reports/session_<serial>_<id>.pdf`; regeneratable |
+| POST | `/sessions/<id>/report` | Runs `generate_report.py --serial <serial> --segments ...` for the session window → `reports/session_<serial>_<id>.pdf`; regeneratable |
 | GET  | `/<file>.pdf` | Download (unchanged) |
 
 Each session row links to the Grafana dashboard scoped to its window

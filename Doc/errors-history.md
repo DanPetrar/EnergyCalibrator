@@ -147,3 +147,16 @@ See `energy-audit.md`.
 - **Root cause (2) — wrong multiplier:** After fixing pin to GPIO2 with USB connected, the ×320/220 formula (assumed R1=100k/R2=220k) appeared to give a correct ~3.87V reading — but only because USB charges via the same node, and the formula happened to reduce the ~5V charging rail to a battery-like value by coincidence. With USB disconnected and battery at 3.87V, the same formula gave 2.83V. Actual divider is R1=R2=100k (×2): 3.87V → 1.94V at ADC → ×2 = 3.88V ✓.
 - **Fix (v1.0.6):** `BAT_ADC_PIN = 2`; `analogReadMilliVolts(pin) * 2`; thresholds in mV rather than raw ADC counts.
 - **Prevention:** Always disconnect USB before calibrating a battery ADC formula. The USB charging rail on GPIO2 contaminates readings and can make a wrong multiplier appear correct.
+
+---
+
+### 2026-06-06 — Report generator: 6 inconsistencies found and fixed
+
+**Context:** User reported large hourly CT deviation fluctuations vs stable header KPI values. Full audit followed.
+
+- **Per-hour denominator noise:** Hourly CT dev columns used `(hour_CT - hour_SDM) / hour_SDM` — denominator ~0.45 kWh/h. SDM float32 quantization (~1 Wh/delta) produces ±3–6% swings per hour that cancel over the full day. **Fix:** cumulative Σ deviation (session-start to end-of-hour); denominator grows each hour, last row equals header KPI.
+- **Unit discovery not scoped to time window:** When `--unit` was omitted, `generate_report.py` queried all distinct units in the entire DB, showing stale units (e.g. `cal_F07F8C`) in session reports. **Fix:** moved units query to after time window is established; uses same `ts` predicate as data fetch.
+- **Service not restarted after code change:** `cal_reports.service` ran old `serve.py` (without `--serial`) after the file was updated on disk. Reports regenerated during that window lacked DUT serial in PDF header. **Fix:** `sudo systemctl restart cal_reports.service` required after any `serve.py` change.
+- **Falsy `if r[k]` vs `is not None`** (5 places): `hour_energy`, `hour_sdm_stats`, `_mean_load`, and energy totals silently skipped rows where dkwh/W = 0.0. No practical impact at current load (>0 W always), but latent for near-zero scenarios. **Fix:** `if r[k] is not None` throughout.
+- **Coverage % penalised partial hours:** First and last hours of a session (or current incomplete hour in a live report) always fell below 80% and went yellow. **Fix:** expected seconds clamped to `max(h, ts_from)` → `min(h+3600, ts_to, now)`; only complete hours flagged.
+- **Minor label/title/filename fixes:** column "Mean load (W)" → "CT mean (W)"; title adapts "Session Report"/"Daily Report"; auto-filename uses `ts_from` strftime not `period_label[:10]` (avoided space in `--segments` mode).
