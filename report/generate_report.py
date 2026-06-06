@@ -418,14 +418,6 @@ def main():
     if not os.path.exists(args.db):
         print(f'ERROR: database not found: {args.db}'); sys.exit(1)
 
-    conn  = sqlite3.connect(args.db)
-    units = [r[0] for r in conn.execute(
-        "SELECT DISTINCT unit FROM cal_min ORDER BY unit").fetchall()]
-    conn.close()
-    if not units: print('No data.'); sys.exit(0)
-
-    unit_label = args.unit or ', '.join(units)
-
     def _parse_dt(s):
         for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d'):
             try: return datetime.strptime(s, fmt)
@@ -468,6 +460,15 @@ def main():
         ts_from = int(day.timestamp())
         ts_to   = int((day + timedelta(days=1)).timestamp())
         period_label = day.strftime('%Y-%m-%d')
+
+    # Derive unit label from data within the selected window, not the whole DB.
+    conn  = sqlite3.connect(args.db)
+    w, p  = _time_pred(ts_from, ts_to, ranges)
+    units = [r[0] for r in conn.execute(
+        f"SELECT DISTINCT unit FROM cal_min WHERE {w} ORDER BY unit", p).fetchall()]
+    conn.close()
+    if not units: print('No data in selected period.'); sys.exit(0)
+    unit_label = args.unit or ', '.join(units)
 
     if args.out is None:
         safe_serial = re.sub(r'[^a-zA-Z0-9_-]+', '-', args.serial or 'unknown').strip('-')
