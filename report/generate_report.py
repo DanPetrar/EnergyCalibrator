@@ -251,7 +251,7 @@ def _kpi_row(sdm_kwh, ct_info):
 
 # ── PDF build ─────────────────────────────────────────────────────────────────
 
-def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label):
+def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label, serial=None):
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
@@ -276,6 +276,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
     story += [
         Paragraph('EnergyCalibrator — Daily Report', S['Title']),
         Paragraph(
+            (f'DUT: <b>{serial}</b> &nbsp;·&nbsp; ' if serial else '') +
             f'Unit: <b>{unit_label}</b> &nbsp;·&nbsp; '
             f'Period: <b>{period_label}</b> &nbsp;·&nbsp; '
             f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")} &nbsp;·&nbsp; '
@@ -390,6 +391,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--db',   default=DEFAULT_DB)
     ap.add_argument('--unit', default=None)
+    ap.add_argument('--serial', default=None, help='DUT serial number (box under test)')
     ap.add_argument('--out',  default=None)
     ap.add_argument('--date', default=None, help='YYYY-MM-DD (default: today)')
     ap.add_argument('--from', dest='frm', default=None,
@@ -457,11 +459,11 @@ def main():
         period_label = day.strftime('%Y-%m-%d')
 
     if args.out is None:
-        safe_unit   = re.sub(r'[^a-zA-Z0-9_-]+', '-', unit_label).strip('-')
+        safe_serial = re.sub(r'[^a-zA-Z0-9_-]+', '-', args.serial or 'unknown').strip('-')
         safe_period = period_label[:10].replace('-', '')
         hms         = datetime.now().strftime('%H%M%S')
         os.makedirs(REPORTS, exist_ok=True)
-        args.out = os.path.join(REPORTS, f'report_{safe_unit}_{safe_period}_{hms}.pdf')
+        args.out = os.path.join(REPORTS, f'report_{safe_serial}_{safe_period}_{hms}.pdf')
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 
@@ -471,7 +473,8 @@ def main():
     sec_hourly = fetch_sec_by_hour(args.db, args.unit, ts_from, ts_to, ranges)
     print(f'Min rows: {len(min_rows)}  Sec rows: {len(sec_rows)}  Hours: {len(sec_hourly)}')
 
-    build_pdf(min_rows, sec_rows, sec_hourly, args.out, unit_label, period_label)
+    build_pdf(min_rows, sec_rows, sec_hourly, args.out, unit_label, period_label,
+              serial=args.serial)
     print(f'Saved: {args.out}')
 
 

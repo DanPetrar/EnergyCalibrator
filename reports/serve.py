@@ -254,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
         out  = os.path.join(REPORTS_DIR, name)
         segstr = ','.join(f'{a}-{b}' for a, b in segs)
         cmd = [sys.executable, GEN_REPORT, '--db', CAL_DB,
-               '--segments', segstr, '--out', out]
+               '--serial', serial, '--segments', segstr, '--out', out]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             msg = html.escape((proc.stderr or proc.stdout or 'report failed').strip())
