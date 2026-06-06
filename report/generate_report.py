@@ -100,7 +100,9 @@ def fetch_sec_all(db, unit, ts_from, ts_to, ranges=None):
 
 
 def fetch_sec_by_hour(db, unit, ts_from, ts_to, ranges=None):
+    """Returns (hourly_dict, total_sec_count) from a single DB fetch."""
     rows = fetch_sec_all(db, unit, ts_from, ts_to, ranges)
+    total = len(rows)
     buckets = defaultdict(lambda: defaultdict(list))
     for r in rows:
         h = _hour_key(r['ts'])
@@ -119,7 +121,7 @@ def fetch_sec_by_hour(db, unit, ts_from, ts_to, ranges=None):
                     s[f'{ch}_{col}_min'] = min(vals)
                     s[f'{ch}_{col}_max'] = max(vals)
         out[h] = s
-    return out
+    return out, total
 
 
 def _hour_key(ts):
@@ -139,18 +141,18 @@ def hour_energy(hrs):
     e = {'R': 0.0, 'S': 0.0, 'T': 0.0, 'SDM': 0.0}
     for r in hrs:
         for ch in ('R', 'S', 'T'):
-            if r[f'{ch}_dkwh']: e[ch] += r[f'{ch}_dkwh']
-        if r['mtr_dkwh']: e['SDM'] += r['mtr_dkwh']
+            if r[f'{ch}_dkwh'] is not None: e[ch] += r[f'{ch}_dkwh']
+        if r['mtr_dkwh'] is not None: e['SDM'] += r['mtr_dkwh']
     return e
 
 
 def hour_sdm_stats(hrs):
-    def a(k): vals = [r[k] for r in hrs if r[k]]; return _avg(vals)
+    def a(k): vals = [r[k] for r in hrs if r[k] is not None]; return _avg(vals)
     return {k: a(k) for k in ('mtr_v', 'mtr_a', 'mtr_w', 'mtr_pf')}
 
 
 def _mean_load(mbh, ch):
-    vals = [r[f'{ch}_w'] for hrs in mbh.values() for r in hrs if r[f'{ch}_w']]
+    vals = [r[f'{ch}_w'] for hrs in mbh.values() for r in hrs if r[f'{ch}_w'] is not None]
     return _avg(vals)
 
 
@@ -251,7 +253,8 @@ def _kpi_row(sdm_kwh, ct_info):
 
 # ── PDF build ─────────────────────────────────────────────────────────────────
 
-def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label, serial=None):
+def build_pdf(min_rows, sec_count, sec_hourly, out_path, unit_label, period_label,
+              serial=None, ts_from=None, ts_to=None):
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
@@ -273,14 +276,15 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
                           color=colors.HexColor(COL_DARK), spaceAfter=4)
 
     # ── Header ────────────────────────────────────────────────────────────────
+    title = 'EnergyCalibrator — Session Report' if serial else 'EnergyCalibrator — Daily Report'
     story += [
-        Paragraph('EnergyCalibrator — Daily Report', S['Title']),
+        Paragraph(title, S['Title']),
         Paragraph(
             (f'DUT: <b>{serial}</b> &nbsp;·&nbsp; ' if serial else '') +
             f'Unit: <b>{unit_label}</b> &nbsp;·&nbsp; '
             f'Period: <b>{period_label}</b> &nbsp;·&nbsp; '
             f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")} &nbsp;·&nbsp; '
-            f'{len(min_rows)} min records &nbsp;·&nbsp; {len(sec_rows)} sec records',
+            f'{len(min_rows)} min records &nbsp;·&nbsp; {sec_count} sec records',
             S['Sub']),
         Spacer(1, 0.08*cm), hr(1.0), Spacer(1, 0.12*cm),
     ]
@@ -290,11 +294,11 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
         doc.build(story); return
 
     # ── Totals ────────────────────────────────────────────────────────────────
-    sdm_total = sum(r['mtr_dkwh'] for r in min_rows if r['mtr_dkwh'])
+    sdm_total = sum(r['mtr_dkwh'] for r in min_rows if r['mtr_dkwh'] is not None)
     ct_kwh = {}
     ct_dev = {}
     for ch in ('R', 'S', 'T'):
-        k = sum(r[f'{ch}_dkwh'] for r in min_rows if r[f'{ch}_dkwh'])
+        k = sum(r[f'{ch}_dkwh'] for r in min_rows if r[f'{ch}_dkwh'] is not None)
         ct_kwh[ch] = k
         ct_dev[ch] = (k - sdm_total) / sdm_total * 100 if sdm_total else None
     ct_info = {ch: {'kwh': ct_kwh[ch], 'dev': ct_dev[ch]} for ch in ('R','S','T')}
@@ -313,7 +317,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
     ranking = sorted(('R','S','T'), key=lambda c: _absdev(ct_dev[c]))
     medals  = ['1st ★', '2nd', '3rd']
     rank_tbl = [['Rank', 'CT', 'Total energy (kWh)', 'Deviation vs SDM630',
-                 'Mean load (W)', 'Assessment']]
+                 'CT mean (W)', 'Assessment']]
     rank_styles = []
     for i, ch in enumerate(ranking):
         d = ct_dev[ch]
@@ -342,6 +346,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
     sum_styles = []
     cumul_ct  = {'R': 0.0, 'S': 0.0, 'T': 0.0}
     cumul_sdm = 0.0
+    now = int(datetime.now().timestamp())
     for h in hours:
         hrs  = mbh.get(h, [])
         sec  = sec_hourly.get(h, {})
@@ -355,11 +360,17 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
             devs[ch] = (cumul_ct[ch] - cumul_sdm) / cumul_sdm * 100 \
                        if cumul_sdm else None
         peak = max((sec.get(f'{ch}_w_max', 0) for ch in ('R','S','T')), default=None)
-        cov  = int(sec.get('n', 0) * 100 // 3600)
+        # Expected seconds: clamp to actual window start/end and wall-clock now,
+        # so partial first/last hours are not penalised for missing future data.
+        h_start = max(h, ts_from) if ts_from else h
+        h_end   = min(h + 3600, ts_to) if ts_to else h + 3600
+        h_end   = min(h_end, now)
+        hour_expected = max(1, h_end - h_start)
+        cov  = int(sec.get('n', 0) * 100 // hour_expected)
         ri   = len(sum_rows)
         sum_rows.append([
             datetime.fromtimestamp(h).strftime(hour_fmt),
-            f'{sdms["mtr_w"]:.0f} W'       if sdms['mtr_w'] else '—',
+            f'{sdms["mtr_w"]:.0f} W'       if sdms['mtr_w'] is not None else '—',
             f'{en["SDM"]:.4f} kWh',
             f'{devs["R"]:+.1f}%'           if devs['R'] is not None else '—',
             f'{devs["S"]:+.1f}%'           if devs['S'] is not None else '—',
@@ -369,7 +380,7 @@ def build_pdf(min_rows, sec_rows, sec_hourly, out_path, unit_label, period_label
         ])
         for ci, ch in enumerate(('R','S','T'), start=3):
             sum_styles.append((ri, ci, dev_bg(devs.get(ch))))
-        if cov < 80:
+        if cov < 80 and hour_expected >= 3600:  # only flag complete hours
             sum_styles.append((ri, 7, COL_YELLOW))
     hour_w = 2.6*cm if multiday else 1.5*cm
     rest_w = [2.7*cm, 2.7*cm, 2.0*cm, 2.0*cm, 2.0*cm, 2.2*cm, 1.9*cm]
@@ -460,7 +471,7 @@ def main():
 
     if args.out is None:
         safe_serial = re.sub(r'[^a-zA-Z0-9_-]+', '-', args.serial or 'unknown').strip('-')
-        safe_period = period_label[:10].replace('-', '')
+        safe_period = datetime.fromtimestamp(ts_from).strftime('%Y%m%d')
         hms         = datetime.now().strftime('%H%M%S')
         os.makedirs(REPORTS, exist_ok=True)
         args.out = os.path.join(REPORTS, f'report_{safe_serial}_{safe_period}_{hms}.pdf')
@@ -468,13 +479,12 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 
     print(f'Unit: {unit_label}  Period: {period_label}')
-    min_rows   = fetch_min(args.db, args.unit, ts_from, ts_to, ranges)
-    sec_rows   = fetch_sec_all(args.db, args.unit, ts_from, ts_to, ranges)
-    sec_hourly = fetch_sec_by_hour(args.db, args.unit, ts_from, ts_to, ranges)
-    print(f'Min rows: {len(min_rows)}  Sec rows: {len(sec_rows)}  Hours: {len(sec_hourly)}')
+    min_rows            = fetch_min(args.db, args.unit, ts_from, ts_to, ranges)
+    sec_hourly, sec_count = fetch_sec_by_hour(args.db, args.unit, ts_from, ts_to, ranges)
+    print(f'Min rows: {len(min_rows)}  Sec rows: {sec_count}  Hours: {len(sec_hourly)}')
 
-    build_pdf(min_rows, sec_rows, sec_hourly, args.out, unit_label, period_label,
-              serial=args.serial)
+    build_pdf(min_rows, sec_count, sec_hourly, args.out, unit_label, period_label,
+              serial=args.serial, ts_from=ts_from, ts_to=ts_to)
     print(f'Saved: {args.out}')
 
 
