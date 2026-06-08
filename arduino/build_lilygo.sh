@@ -1,9 +1,11 @@
 #!/bin/bash
 # build_lilygo.sh — compile + flash EnergyCalibrator for LilyGO T7 S3 WROOM-1 N16R8
 # Board: 16MB DIO flash, 8MB OPI PSRAM, native USB CDC
-# Usage: ./build_lilygo.sh [port]   (port defaults to /dev/ttyACM0)
+# Usage: ./build_lilygo.sh [port|--build-only]   (port defaults to /dev/ttyACM0)
 
-PORT="${1:-/dev/ttyACM0}"
+BUILD_ONLY=0
+PORT="/dev/ttyACM0"
+if [ "$1" = "--build-only" ]; then BUILD_ONLY=1; elif [ -n "$1" ]; then PORT="$1"; fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKETCH="${SCRIPT_DIR}/EnergyCalibrator/EnergyCalibrator.ino"
 
@@ -48,6 +50,14 @@ BOOT=$(ls "$BUILD_DIR"/*.bootloader.bin 2>/dev/null | head -1)
 PART=$(ls "$BUILD_DIR"/*.partitions.bin 2>/dev/null | head -1)
 
 if [ -z "$BIN" ]; then echo "Binary not found in $BUILD_DIR"; exit 1; fi
+
+# Copy binary to ota/
+VER=$(grep 'FW_VERSION' "${SCRIPT_DIR}/EnergyCalibrator/Config.h" | grep -oP '"[^"]+"' | tr -d '"')
+OTA_BIN="${SCRIPT_DIR}/../ota/EnergyCalibrator_v${VER}_lilygo.bin"
+cp "$BIN" "$OTA_BIN"
+echo "[prep] Saved: $OTA_BIN ($(ls -lh "$OTA_BIN" | awk '{print $5}'))"
+
+if [ $BUILD_ONLY -eq 1 ]; then echo "[build-only] Binary saved. Skipping flash + smoke."; exit 0; fi
 
 echo "[2/3] Flashing to $PORT ..."
 source /home/pi/esp/esp-idf/export.sh > /dev/null 2>&1
