@@ -1,5 +1,13 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## build scripts — 2026-06-08
+
+- `build_lilygo.sh`: now auto-saves OTA binary to `ota/EnergyCalibrator_vX.Y.Z_lilygo.bin` after every compile; was missing (binaries were manually copied before).
+- `build_lilygo.sh`: added `--build-only` flag — compiles and saves OTA binary without flashing.
+- `build_s3zero.sh`: `--build-only` flag added (compile + save OTA, skip flash + smoke).
+
+---
+
 ## v1.0.7 — 2026-06-05
 
 **Files:** `EnergyCalibrator_v1.0.7_lilygo.bin` · `EnergyCalibrator_v1.0.7_s3zero.bin`

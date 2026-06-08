@@ -1,7 +1,7 @@
 # EnergyCalibrator — Project Specification
 
-**Version:** 1.2 (2026-06-01)  
-**Firmware:** v1.0.3  
+**Version:** 1.3 (2026-06-08)  
+**Firmware:** v1.0.7  
 **Status:** Operational — real-load calibration session active
 
 > Firmware energy accounting has been audited end-to-end; see
@@ -47,9 +47,7 @@ Parallel CT calibration tool. Three CT sensors from a measurement box (R/S/T cha
 | 5 | Box serial RX — UART1, 115200 8N1 |
 | 15 | SDM630 RS485 RX — UART2 (Module TX → GPIO15) |
 | 16 | SDM630 RS485 TX — UART2 (Module RX → GPIO16) |
-| 17 | Plain status LED (single-color GPIO, not NeoPixel) |
-| 2 | PWR ADC |
-| 4 | BAT ADC |
+| 21 | NeoPixel LED (onboard WS2812, 1 pixel) |
 
 > **Shared pinout standard (2026-06-03):** box RX = **GPIO5** and RS485 (SDM630,
 > auto-direction) RX/TX = **GPIO15/16** are the common comms pins across **both
@@ -119,6 +117,8 @@ define `SecRecord`/`MinRecord`/`DATA_VERSION`/`ZaxConfig` first.
 | v1.0.3 | Fix F1 energy-audit finding — per-minute box delta + baseline advance only on a successful SDM-paired publish (a skipped minute folds into the next row symmetrically with the meter) |
 | v1.0.4 | S3-Zero board support (`-DBOARD_S3ZERO`, LED=21, ADC=-1); `arduino/build_s3zero.sh` (Waveshare FQBN, min_spiffs, PSRAM enabled) |
 | v1.0.5 | LilyGO LED fix — plain GPIO + blink patterns (see ZaxMonitor v1.1.7 for rationale); S3-Zero NeoPixel color values corrected (near-invisible → 180–255 range); `led.clear()+show()` on init to suppress power-on white artifact |
+| v1.0.6 | Battery monitoring + power detection (LilyGO only): BAT_ADC_PIN 4→2, `analogReadMilliVolts(2)×2` (R1=R2=100k divider), `bat_mv` added to `/api/sysinfo`; `pwr_ok` when `bat_mv > 4800 mV`; `bat_low` MQTT alert below 3200 mV; `bat_critical` + Error LED below 2850 mV; recovery fires `bat_ok`. LilyGO LED redesign — 4-state diagnostic blink patterns: OK / MQTT_DOWN / NO_DATA / ERROR (same as ZaxMonitor v1.1.8). S3-Zero: no functional change |
+| v1.0.7 | BOOT button factory reset (GPIO0, both boards): hold 5 s → rapid blink warning; hold 3 s more → NVS namespace + WiFi credentials cleared + reboot; release within 8 s aborts. Configurable AP password: `ap_pass` NVS key (default `ZaxEnergy-123`, min 8 chars), exposed in WiFi Config tab; resets to default on factory reset. Reports list sorted by mtime (newest first) |
 
 ### 3.2 Data Flow
 
@@ -424,4 +424,4 @@ All three CTs within ±1% — highly accurate at real-load conditions.
 - **dkwh quantization:** the box energy counter has **0.01 kWh (10 Wh) resolution — 2 decimals** per channel (verified 2026-06-03: all box `dkwh` values land exactly on the 0.01 grid). At typical bench loads (~450 W ≈ 7 Wh/min) a channel earns *less than one count per minute*, so most minutes read 0 and the counter releases an accumulated 0.02–0.03 kWh when it ticks (you never see 0.01). The **SDM630 reference is 10× finer — 0.001 kWh (1 Wh), 3 decimals** — so it has a value every minute. Consequence: **per-minute box energy is not meaningful**; compare `Σ dkwh` over ≥15-min windows (full-day for totals). Use the cumulative / 15-min Grafana views, not per-minute.
 - **MQTT sec drop rate:** ~3.5% of per-second packets lost in transit. Irrelevant for energy (uses cal_min dkwh), but reduces sec coverage in cal_sec to ~96.5%.
 - **Instantaneous mismatch:** SDM `ts` in cal_min is ~226ms after box minute. Rapid load changes between the two reads will show a gap in the instantaneous comparison — not a measurement error.
-- **bat_pct reads -1:** Unit D powered by box USB — no battery. Normal.
+- **bat_mv = -1 (S3-Zero):** Unit A (Waveshare ESP32-S3-Zero) has no battery ADC hardware; `BAT_ADC_PIN=-1`. `/api/sysinfo` returns `bat_mv=-1`, `bat_low=false`, `bat_critical=false`. Normal for S3-Zero. LilyGO (Unit D) has the battery circuit on GPIO2.

@@ -1,6 +1,6 @@
 # EnergyCalibrator — Product Description
 
-_Firmware v1.0.5 · Last updated: 2026-06-03_
+_Firmware v1.0.7 · Last updated: 2026-06-08_
 
 ---
 
@@ -53,9 +53,31 @@ The report covers the full session window and includes:
 
 - **KPI summary** — energy deviation per CT channel vs SDM reference (%)
 - **Hourly breakdown** — deviation per hour, colour-coded by severity
-- **Load band analysis** — deviation split across power ranges (0–200 W, 200–500 W, 500–1000 W, 1000–1500 W, > 1500 W) to identify load-dependent behaviour
 - **CT ranking** — channels ordered by accuracy (Best / Good / Needs calibration)
-- **Statistical summary** — mean V/A/W/PF and standard deviation per channel over the session
+
+> "Deviation by Load Band" and "All-day Measurement Statistics" were removed in v1.0.5 — their snapshot-based methodology mixes CT per-second and SDM per-minute sampling windows, producing misleading percentages. Both may be reintroduced with a corrected methodology.
+
+---
+
+## Device Features
+
+### Battery and Power Monitoring (LilyGO, v1.0.6+)
+
+The LilyGO T7 S3 board includes built-in LiPo charging. The firmware monitors power and battery state via GPIO2 (R1=R2=100 kΩ divider, ×2 multiplier):
+
+- `bat_mv > 4800 mV` — USB/5V connected (`pwr_ok`)
+- `bat_mv < 3200 mV` — battery low (MQTT `bat_low` alert)
+- `bat_mv < 2850 mV` — battery critical (MQTT `bat_critical` + Error LED)
+
+`bat_mv` is exposed in `/api/sysinfo`. The S3-Zero has no battery hardware; `bat_mv` reads −1.
+
+### Factory Reset (v1.0.7+)
+
+Hold the BOOT button (GPIO0) for 5 seconds — the LED blinks rapidly as a warning. Continue holding for 3 more seconds to confirm: all NVS configuration and WiFi credentials are erased, and the device reboots into AP mode with default settings. Release before 8 seconds to abort with no changes.
+
+### Configurable AP Password (v1.0.7+)
+
+The access-point password is stored in NVS key `ap_pass` (default `ZaxEnergy-123`, minimum 8 characters). It can be changed in the Config tab under WiFi Configuration. Leave the field blank to keep the current value. The password resets to the default on factory reset.
 
 ---
 
