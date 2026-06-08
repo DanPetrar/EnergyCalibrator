@@ -1,5 +1,13 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.8 — 2026-06-08
+
+**Files:** `EnergyCalibrator_v1.0.8_s3zero.bin`
+
+- **Fix: sec timestamp gap bug** — `latestSec.ts` was assigned from `time(nullptr)` at parse time (T-channel, ch==2). When `server.handleClient()` blocked the loop() for ~1 s handling an HTTP poll (directory service every 30 s), two consecutive R/S/T frame sets arrived in the UART buffer. Both were processed in the same wall-clock second, both got the same `ts`, and `INSERT OR REPLACE` in the collector kept only one → one second appeared as a gap every ~30 s (observed: 3.5% drop rate in `cal_sec`). Fix: `frameSetTs` counter, set on the R-channel (ch==0) frame — increments monotonically, resyncs to wall clock only if the gap exceeds 3 s. Two back-to-back buffered frame sets now get ts=N and ts=N+1 correctly. Both boards.
+
+---
+
 ## build scripts — 2026-06-08
 
 - `build_lilygo.sh`: now auto-saves OTA binary to `ota/EnergyCalibrator_vX.Y.Z_lilygo.bin` after every compile; was missing (binaries were manually copied before).

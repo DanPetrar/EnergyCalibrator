@@ -66,6 +66,7 @@ PubSubClient mqtt(wifiClient);
 ModbusMaster meter;
 ZaxConfig    cfg;
 SecRecord    latestSec    = {};
+static uint32_t frameSetTs = 0;   // monotonic ts assigned per R/S/T frame set
 MinRecord    latestMin    = {};
 MeterRecord  latestMeter  = {};
 bool         hasSec       = false;
@@ -326,8 +327,15 @@ static void parse_sec(const char* line, int ch) {
   latestSec.var[ch] = (int32_t)var_v;
   latestSec.pf[ch]  = pf;
   latestSec.hz[ch]  = hz;
+  if (ch == 0) {
+    uint32_t now = (uint32_t)time(nullptr);
+    if (frameSetTs == 0 || now < 1000000UL || now > frameSetTs + 3)
+      frameSetTs = now;
+    else
+      frameSetTs++;
+  }
   if (ch == 2) {
-    latestSec.ts = (uint32_t)time(nullptr);
+    latestSec.ts = frameSetTs;
     hasSec = true;
     if (bootGraceDone) faultCheckSec(latestSec, cfg);
   }

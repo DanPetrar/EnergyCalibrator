@@ -1,9 +1,11 @@
 #!/bin/bash
 # build_s3zero.sh — compile + flash EnergyCalibrator for Waveshare ESP32-S3-Zero (4MB QIO, 2MB PSRAM)
 # Partition: min_spiffs — 1.9MB APP x2 (OTA) + 128KB SPIFFS (LittleFS)
-# Usage: ./build_s3zero.sh [port]   (port defaults to /dev/ttyACM0)
+# Usage: ./build_s3zero.sh [port|--build-only]   (port defaults to /dev/ttyACM0)
 
-PORT="${1:-/dev/ttyACM0}"
+BUILD_ONLY=0
+PORT="/dev/ttyACM0"
+if [ "$1" = "--build-only" ]; then BUILD_ONLY=1; elif [ -n "$1" ]; then PORT="$1"; fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKETCH="${SCRIPT_DIR}/EnergyCalibrator/EnergyCalibrator.ino"
 BUILD_DIR="/tmp/arduino_build_EnergyCalibrator_s3zero"
@@ -43,6 +45,8 @@ VER=$(grep 'FW_VERSION' "${SCRIPT_DIR}/EnergyCalibrator/Config.h" | grep -oP '"[
 OTA_BIN="${SCRIPT_DIR}/../ota/EnergyCalibrator_v${VER}_s3zero.bin"
 cp "$BIN" "$OTA_BIN"
 echo "[prep] Saved: $OTA_BIN ($(ls -lh "$OTA_BIN" | awk '{print $5}'))"
+
+if [ $BUILD_ONLY -eq 1 ]; then echo "[build-only] Binary saved. Skipping flash + smoke."; exit 0; fi
 
 echo "[2/3] Flashing to $PORT ..."
 source /home/pi/esp/esp-idf/export.sh > /dev/null 2>&1
