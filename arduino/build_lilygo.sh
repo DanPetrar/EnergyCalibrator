@@ -101,6 +101,11 @@ python -m esptool --chip esp32s3 -p "$PORT" -b 921600 \
 
 if [ ${PIPESTATUS[0]} -ne 0 ]; then echo "Flash failed."; exit 1; fi
 
+# ── Second reset — expose real boot behaviour before smoke test ───────────────
+echo "[reset] Clean reset before smoke test ..."
+python -m esptool --chip esp32s3 -p "$PORT" \
+  --before default-reset --after hard-reset chip_id > /dev/null 2>&1
+
 # ── Smoke test ────────────────────────────────────────────────────────────────
 if [ "${SKIP_SMOKE:-0}" = "1" ]; then
   echo "[3/3] Smoke test skipped."

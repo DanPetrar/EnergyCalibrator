@@ -38,7 +38,7 @@ struct MeterRecord {        // SDM630 reading (R phase = reference)
 // ── device configuration ──────────────────────────────────────────────────────
 
 #define CFG_NVS    "cal"
-#define FW_VERSION "1.0.9"
+#define FW_VERSION "1.0.10"
 #define DATA_VERSION 1
 
 #define BUF_MODE_LTE 0

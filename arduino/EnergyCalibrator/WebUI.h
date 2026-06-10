@@ -1027,7 +1027,11 @@ static void handleGetNetinfo() {
 static void handleGetSysinfo() {
   JsonDocument doc;
   doc["fw_version"] = FW_VERSION;
+#if defined(BOARD_S3ZERO)
+  doc["model"] = "Waveshare ESP32-S3-Zero";
+#else
   doc["model"] = "LilyGO T7 S3 WROOM-1";
+#endif
 
   uint32_t sec = millis() / 1000;
   char buf[24];
@@ -1406,43 +1410,47 @@ static void handleOtaComplete() {
 }
 
 static void handleOtaUpload() {
-  static uint8_t* _buf     = nullptr;
-  static size_t   _filled  = 0;
-  static bool     _checked = false;
+  // Streaming meta scan — no large heap allocation.
+  // We slide a window of (overlap + chunk) through the binary looking for the
+  // ZaxOtaMeta magic. The overlap carries the last sizeof(ZaxOtaMeta)-1 bytes
+  // of the previous chunk so the magic is never missed at a chunk boundary.
+  static uint8_t _overlap[sizeof(ZaxOtaMeta) - 1];
+  static size_t  _scanned      = 0;
+  static bool    _checked      = false;
+  static bool    _updateStarted = false;
 
   HTTPUpload& up = server.upload();
-
-  // loop() is stalled for the whole upload, so feed the watchdog per chunk.
   esp_task_wdt_reset();
 
   if (up.status == UPLOAD_FILE_START) {
     _otaMetaOk = false; _otaErr[0] = '\0';
-    _filled = 0; _checked = false;
-    _buf = (uint8_t*)ps_malloc(512 * 1024);
-    if (!_buf) { strlcpy(_otaErr, "ps_malloc failed", sizeof(_otaErr)); return; }
-    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+    _scanned = 0; _checked = false;
+    memset(_overlap, 0, sizeof(_overlap));
+    _updateStarted = Update.begin(UPDATE_SIZE_UNKNOWN);
+    if (!_updateStarted)
       strlcpy(_otaErr, "Update.begin failed", sizeof(_otaErr));
-      free(_buf); _buf = nullptr;
-    }
+
   } else if (up.status == UPLOAD_FILE_WRITE) {
-    if (_buf && _filled < 512 * 1024) {
-      size_t n = min((size_t)up.currentSize, 512 * 1024 - _filled);
-      memcpy(_buf + _filled, up.buf, n);
-      _filled += n;
+    if (!_checked && _scanned < (512u * 1024u)) {
+      size_t ov   = sizeof(_overlap);
+      size_t csz  = up.currentSize;
+      size_t wlen = ov + csz;
+      uint8_t* win = (uint8_t*)malloc(wlen);
+      if (win) {
+        memcpy(win, _overlap, ov);
+        memcpy(win + ov, up.buf, csz);
+        if (_scanOtaMeta(win, wlen)) { _otaMetaOk = true; _checked = true; }
+        memcpy(_overlap, win + wlen - ov, ov);
+        free(win);
+      }
+      _scanned += csz;
+      if (_scanned >= (512u * 1024u) && !_checked) _checked = true;
     }
-    if (!_checked && _filled >= 512 * 1024) {
-      _checked = true;
-      _otaMetaOk = _scanOtaMeta(_buf, 512 * 1024);
-      free(_buf); _buf = nullptr;
-    }
-    if (!Update.hasError()) Update.write(up.buf, up.currentSize);
+    if (_updateStarted && !Update.hasError()) Update.write(up.buf, up.currentSize);
     if (_checked && !_otaMetaOk) Update.abort();
+
   } else if (up.status == UPLOAD_FILE_END) {
-    if (!_checked) {
-      _checked = true;
-      _otaMetaOk = _buf ? _scanOtaMeta(_buf, _filled) : false;
-      if (_buf) { free(_buf); _buf = nullptr; }
-    }
+    if (!_checked) _checked = true;   // meta not found in entire binary → reject
     if (_otaMetaOk && !Update.hasError()) Update.end(true);
     else Update.end(false);
   }

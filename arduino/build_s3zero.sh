@@ -95,6 +95,15 @@ python -m esptool --chip esp32s3 -p "$PORT" -b 921600 \
 
 if [ ${PIPESTATUS[0]} -ne 0 ]; then echo "Flash failed."; exit 1; fi
 
+# ── Second reset — expose real boot behaviour before smoke test ───────────────
+# esptool's post-flash state can mask boot failures (e.g. QIO+OPI PSRAM conflict
+# on ESP32-S3 rev v0.2 shows clean boot right after flash but loops on any later
+# reset). A second chip_id → hard-reset simulates a power cycle so the smoke test
+# captures the same boot the device will produce in the field.
+echo "[reset] Clean reset before smoke test ..."
+python -m esptool --chip esp32s3 -p "$PORT" \
+  --before default-reset --after hard-reset chip_id > /dev/null 2>&1
+
 # ── Smoke test ────────────────────────────────────────────────────────────────
 if [ "${SKIP_SMOKE:-0}" = "1" ]; then
   echo "[3/3] Smoke test skipped."
