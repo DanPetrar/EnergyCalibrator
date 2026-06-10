@@ -1377,20 +1377,25 @@ static int _scanOtaMeta(const uint8_t* buf, size_t len) {
     uint32_t m; memcpy(&m, buf + i, 4);
     if (m != MAGIC) continue;
     ZaxOtaMeta meta; memcpy(&meta, buf + i, sizeof(meta));
+    // Trust this occurrence as a real ZaxOtaMeta only if the record-size fields match.
+    // 0x5A415843 can occur by chance in code/data with garbage fields; such a hit must
+    // not set the headline error over a genuine meta found elsewhere (it once produced
+    // a misleading "wrong project (id=13)" from a coincidental match). A size mismatch
+    // is only reported if no real meta was seen.
+    if (meta.sec_rec_size != ZAX_META.sec_rec_size || meta.min_rec_size != ZAX_META.min_rec_size) {
+      if (result == 0) {
+        snprintf(_otaErr, sizeof(_otaErr), "incompatible record layout (sec=%u min=%u)",
+                 meta.sec_rec_size, meta.min_rec_size);
+        result = -1;
+      }
+      continue;
+    }
     if (meta.project_id != ZAX_META.project_id) {
       snprintf(_otaErr, sizeof(_otaErr), "wrong project (id=%d)", meta.project_id);
       result = -1; continue;
     }
     if (meta.hw_target != ZAX_META.hw_target) {
       snprintf(_otaErr, sizeof(_otaErr), "hw_target mismatch: %d", meta.hw_target);
-      result = -1; continue;
-    }
-    if (meta.sec_rec_size != ZAX_META.sec_rec_size) {
-      snprintf(_otaErr, sizeof(_otaErr), "sec_rec_size %d!=%d", meta.sec_rec_size, ZAX_META.sec_rec_size);
-      result = -1; continue;
-    }
-    if (meta.min_rec_size != ZAX_META.min_rec_size) {
-      snprintf(_otaErr, sizeof(_otaErr), "min_rec_size %d!=%d", meta.min_rec_size, ZAX_META.min_rec_size);
       result = -1; continue;
     }
     return 1;  // valid meta — accept immediately
