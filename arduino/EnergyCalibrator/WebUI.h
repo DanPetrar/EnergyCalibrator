@@ -1360,6 +1360,10 @@ static void handlePostTest() {
 
 static bool _otaMetaOk  = false;
 static char _otaErr[64] = "";
+// Persists ACROSS chunk-windows for one upload (reset at UPLOAD_FILE_START): once a
+// real ZaxOtaMeta (matching record sizes) is seen in any window, a coincidental
+// 0x5A415843 in a later window must not overwrite its specific error message.
+static bool _otaRealMetaSeen = false;
 
 // Returns: 1 = valid ZAX_META found (accept), -1 = a magic was found but a field
 // mismatched (sets the specific _otaErr), 0 = no magic in this window.
@@ -1383,13 +1387,16 @@ static int _scanOtaMeta(const uint8_t* buf, size_t len) {
     // a misleading "wrong project (id=13)" from a coincidental match). A size mismatch
     // is only reported if no real meta was seen.
     if (meta.sec_rec_size != ZAX_META.sec_rec_size || meta.min_rec_size != ZAX_META.min_rec_size) {
-      if (result == 0) {
+      // Only describe an incompatible layout if no real meta has been seen in ANY
+      // window of this upload — otherwise this is a coincidental hit; stay quiet.
+      if (!_otaRealMetaSeen) {
         snprintf(_otaErr, sizeof(_otaErr), "incompatible record layout (sec=%u min=%u)",
                  meta.sec_rec_size, meta.min_rec_size);
         result = -1;
       }
       continue;
     }
+    _otaRealMetaSeen = true;
     if (meta.project_id != ZAX_META.project_id) {
       snprintf(_otaErr, sizeof(_otaErr), "wrong project (id=%d)", meta.project_id);
       result = -1; continue;
@@ -1452,7 +1459,7 @@ static void handleOtaUpload() {
 
   if (up.status == UPLOAD_FILE_START) {
     _otaMetaOk = false; _otaErr[0] = '\0';
-    _scanned = 0; _checked = false; _metaSeen = false;
+    _scanned = 0; _checked = false; _metaSeen = false; _otaRealMetaSeen = false;
     memset(_overlap, 0, sizeof(_overlap));
     _updateStarted = Update.begin(UPDATE_SIZE_UNKNOWN);
     if (!_updateStarted)
