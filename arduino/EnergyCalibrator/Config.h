@@ -38,11 +38,19 @@ struct MeterRecord {        // SDM630 reading (R phase = reference)
 // ── device configuration ──────────────────────────────────────────────────────
 
 #define CFG_NVS    "cal"
-#define FW_VERSION "1.0.8"
+#define FW_VERSION "1.0.9"
 #define DATA_VERSION 1
 
 #define BUF_MODE_LTE 0
 #define BUF_MODE_ADF 1
+
+#define HW_TARGET_LILYGO  0
+#define HW_TARGET_S3ZERO  1
+#if defined(BOARD_S3ZERO)
+  #define HW_TARGET HW_TARGET_S3ZERO
+#else
+  #define HW_TARGET HW_TARGET_LILYGO
+#endif
 
 struct ZaxConfig {
   char     dev_name[32];

@@ -96,7 +96,7 @@ bool         bootGraceDone      = false;
 uint32_t     lastDataMs         = 0;
 uint32_t     lastFaultsMs       = 0;
 
-ZaxOtaMeta ZAX_META = { 0x5A415843UL, FW_VERSION, 0, DATA_VERSION,
+ZaxOtaMeta ZAX_META = { 0x5A415843UL, FW_VERSION, HW_TARGET, DATA_VERSION,
                         (uint16_t)sizeof(SecRecord), (uint16_t)sizeof(MinRecord), {} };
 
 // Box energy accumulators (same rollover-safe logic as ZaxMonitor).
