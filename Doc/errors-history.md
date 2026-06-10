@@ -160,3 +160,15 @@ See `energy-audit.md`.
 - **Falsy `if r[k]` vs `is not None`** (5 places): `hour_energy`, `hour_sdm_stats`, `_mean_load`, and energy totals silently skipped rows where dkwh/W = 0.0. No practical impact at current load (>0 W always), but latent for near-zero scenarios. **Fix:** `if r[k] is not None` throughout.
 - **Coverage % penalised partial hours:** First and last hours of a session (or current incomplete hour in a live report) always fell below 80% and went yellow. **Fix:** expected seconds clamped to `max(h, ts_from)` → `min(h+3600, ts_to, now)`; only complete hours flagged.
 - **Minor label/title/filename fixes:** column "Mean load (W)" → "CT mean (W)"; title adapts "Session Report"/"Daily Report"; auto-filename uses `ts_from` strftime not `period_label[:10]` (avoided space in `--segments` mode).
+
+---
+
+## 2026-06-10 — build_s3zero.sh QIO boot loop (ets_loader.c:78)
+
+**Symptom:** After USB flash of v1.0.9 and esptool `chip_id` reset, Unit A (Waveshare ESP32-S3-Zero) entered a TG0WDT_SYS_RST boot loop at `ets_loader.c:78`. WiFi unreachable.
+
+**Root cause:** `build_s3zero.sh` used `FlashMode=qio` (from the Waveshare board definition default). The ESP32-S3FH4R2 (rev v0.2) has 2MB OPI PSRAM; on this silicon revision QIO flash mode conflicts with OPI PSRAM initialization in the second-stage bootloader. The initial USB flash appeared to succeed (smoke test PASS) because esptool's post-flash state masks the conflict — any subsequent clean reset (via JTAG/CDC `chip_id`) exposed the real boot failure.
+
+**Fix:** Switched FQBN from `esp32:esp32:waveshare_esp32_s3_zero:FlashMode=qio` to `esp32:esp32:esp32s3:FlashMode=dio,FlashSize=4M,PSRAM=opi`. The Waveshare board definition has no DIO option; the generic esp32s3 FQBN with explicit DIO + OPI settings is correct. Same fix already applied to LilyGO build scripts.
+
+**Lesson:** Any ESP32-S3 rev v0.2 board with OPI PSRAM must use `FlashMode=dio`. The `ets_loader.c:78` (or `:79`) boot loop at QIO mode is the diagnostic signature.
