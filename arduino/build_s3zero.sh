@@ -122,9 +122,11 @@ DURATION="${SMOKE_DURATION:-12}"
 sleep 2
 echo "[3/3] Smoke test — capturing ${DURATION}s of boot serial on $PORT ..."
 
-stty -F "$PORT" 115200 cs8 -cstopb -parenb -icanon -echo -echoe -echok \
-            -icrnl -inlcr -ixon -ixoff -opost min 0 time 5 2>/dev/null
-timeout 1 cat "$PORT" > /dev/null 2>&1
+# No stty / no pre-flush cat on S3-Zero. Its native USB-CDC ignores baud anyway, and
+# any extra port open (stty, or a discard-cat) toggles DTR / drains the one-shot boot
+# banner that CDC buffers until first host connect — leaving the logging cat with
+# nothing (the device is silent in steady state with no box). Reset → settle → single
+# capturing cat is the only reliable sequence here.
 timeout "$DURATION" cat "$PORT" > "$LOG" 2>/dev/null
 
 FATAL_PATTERNS='\[BOOT\] FATAL|Guru Meditation|abort\(\)|assert failed|panic|Brownout detector|rst:0x10 \(RTCWDT'
