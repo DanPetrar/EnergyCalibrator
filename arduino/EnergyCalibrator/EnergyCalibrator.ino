@@ -96,6 +96,11 @@ bool         bootGraceDone      = false;
 uint32_t     lastDataMs         = 0;
 uint32_t     lastFaultsMs       = 0;
 
+// OTA compatibility stamp embedded in the firmware image. The WebUI scans an
+// uploaded binary for this magic and rejects it if hw_target, data_version, or
+// the record sizes don't match the running build — guards against flashing a
+// LilyGO image onto an S3-Zero, or a build whose SecRecord/MinRecord layout
+// differs from the snapshots already on flash (which would deserialise garbage).
 ZaxOtaMeta ZAX_META = { 0x5A415843UL, FW_VERSION, HW_TARGET, DATA_VERSION,
                         (uint16_t)sizeof(SecRecord), (uint16_t)sizeof(MinRecord), {} };
 
@@ -328,6 +333,11 @@ static void parse_sec(const char* line, int ch) {
   latestSec.pf[ch]  = pf;
   latestSec.hz[ch]  = hz;
   if (ch == 0) {
+    // One monotonic ts per R/S/T frame set, stamped on the R frame so all three
+    // channels in a set share it. Snap to wall-clock when it's sane and close
+    // (within 3 s); otherwise advance by 1 s. This keeps ts strictly increasing
+    // before NTP sync (now < 1e6) and bridges NTP step corrections without
+    // emitting duplicate or backwards timestamps that would break MQTT replay.
     uint32_t now = (uint32_t)time(nullptr);
     if (frameSetTs == 0 || now < 1000000UL || now > frameSetTs + 3)
       frameSetTs = now;
@@ -556,7 +566,10 @@ static void mqttReplay() {
     if (mqtt.publish(secTopic.c_str(), (const uint8_t*)&r, sizeof(SecRecord))) {
       lastPublishedSecTs = r.ts;
       secSent++;
-      if (secSent % 50 == 0) mqtt.loop();
+      // This whole replay runs in one loop() iteration and can push thousands of
+      // records (secBuf.cnt up to 14400). Service MQTT and pet the watchdog every
+      // 50 so a slow link can't starve mqtt keepalive or trip the 60 s task WDT.
+      if (secSent % 50 == 0) { mqtt.loop(); esp_task_wdt_reset(); }
     }
   }
   mqttPublishEvent("replay_done", secSent, 0, true);

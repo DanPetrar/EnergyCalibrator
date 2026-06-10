@@ -130,8 +130,12 @@ static void loadConfig(ZaxConfig& c) {
   Preferences p;
   if (!p.begin(CFG_NVS, true)) return;
 
+  // Default to the value cfgDefaults() already put in buf, NOT "" — an absent
+  // NVS key (first boot, or after the BOOT-button factory reset) must keep the
+  // compiled-in default. A "" default here would wipe ntp_srv → NTP never syncs,
+  // and mqtt_topic → the "cal"→"cal_<mac>" auto-set guard in wifiSetup() misses.
   auto gs = [&](const char* k, char* buf, size_t sz) {
-    String s = p.getString(k, "");
+    String s = p.getString(k, buf);
     strncpy(buf, s.c_str(), sz - 1);
     buf[sz - 1] = '\0';
   };
