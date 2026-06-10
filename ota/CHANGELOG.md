@@ -1,5 +1,46 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.10 — 2026-06-10
+
+**Files:** `EnergyCalibrator_v1.0.10_s3zero.bin`
+
+- **Fix: OTA ps_malloc failed on S3-Zero** — the OTA upload handler was allocating a 512 KB
+  PSRAM buffer (`ps_malloc`) to scan for the `ZaxOtaMeta` magic before flashing. On the
+  S3-Zero (2 MB OPI PSRAM) this always fails because the ring buffers consume nearly all
+  available PSRAM. Replaced with a streaming scan: a 31-byte overlap window between
+  consecutive HTTP upload chunks; no large allocation needed. Works on both S3-Zero (2 MB)
+  and LilyGO (8 MB). OTA from the web UI and `curl -F` now complete successfully on Unit A.
+- **Fix: board model name in System Info** — System Info page always showed
+  "LilyGO T7 S3 WROOM-1" regardless of board. Now guarded by `BOARD_S3ZERO`:
+  S3-Zero reports "Waveshare ESP32-S3-Zero", LilyGO reports "LilyGO T7 S3 WROOM-1".
+- **Build scripts** — second-reset step added to both `build_lilygo.sh` and `build_s3zero.sh`:
+  after flashing, a second `esptool chip_id --after hard-reset` simulates a power cycle
+  so the smoke test captures the real boot the device will produce in the field (previously
+  esptool's post-flash state masked boot failures such as the QIO+OPI PSRAM boot loop).
+
+---
+
+## v1.0.9 — 2026-06-10
+
+**Files:** `EnergyCalibrator_v1.0.9_lilygo.bin` · `EnergyCalibrator_v1.0.9_s3zero.bin`
+
+- **Fix: hw_target always zero in OTA meta** — `ZaxOtaMeta.hw_target` was hardcoded to `0`
+  in the global initialiser. Added `HW_TARGET_LILYGO=0` / `HW_TARGET_S3ZERO=1` macros to
+  `Config.h` and a compile-time `#if defined(BOARD_S3ZERO)` guard. The OTA guard in the
+  upload handler now correctly rejects a LilyGO binary on an S3-Zero and vice versa.
+- **Flash guard system** — `~/flash_guard.py` + `~/boards.json` on the Pi:
+  pre-flash check reads the target board's MAC and flash size via esptool, verifies against
+  a catalog of known units (board type + firmware + expected flash MB), and aborts if
+  anything mismatches. Both build scripts now run the guard before every flash, preventing
+  wrong-board writes (root cause: Unit D was bricked by an S3-Zero binary in a previous
+  session). `REGISTER=Unit_X` env var triggers first-time enrollment.
+- **Multi-device lockout** — build scripts abort with a clear error when more than one
+  `/dev/ttyACM*` is present and no explicit port is given.
+- **Post-smoke catalog update** — `flash_guard.py update` records the new version in
+  `boards.json` after every successful smoke test.
+
+---
+
 ## v1.0.8 — 2026-06-08
 
 **Files:** `EnergyCalibrator_v1.0.8_s3zero.bin`
