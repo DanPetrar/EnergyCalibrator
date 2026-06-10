@@ -59,6 +59,8 @@ if [ $BUILD_ONLY -eq 0 ]; then
     || exit 1
 fi
 
+# FlashMode=dio (not qio): QIO conflicts with OPI PSRAM init on ESP32-S3
+# rev v0.2 and boot-loops. Same rationale as build_s3zero.sh.
 echo "[1/3] Compiling for LilyGO T7 S3 (16MB flash, OPI PSRAM, DIO mode) ..."
 mkdir -p "$BUILD_DIR"
 cp "$CSV_SRC" "${SCRIPT_DIR}/EnergyCalibrator/partitions.csv"
@@ -81,6 +83,7 @@ fi
 BIN=$(ls  "$BUILD_DIR"/*.ino.bin 2>/dev/null | head -1)
 BOOT=$(ls "$BUILD_DIR"/*.bootloader.bin 2>/dev/null | head -1)
 PART=$(ls "$BUILD_DIR"/*.partitions.bin 2>/dev/null | head -1)
+BOOT_APP0="${HOME}/.arduino15/packages/esp32/hardware/esp32/3.3.7/tools/partitions/boot_app0.bin"
 
 if [ -z "$BIN" ]; then echo "Binary not found in $BUILD_DIR"; exit 1; fi
 
@@ -92,11 +95,16 @@ echo "[prep] Saved: $OTA_BIN ($(ls -lh "$OTA_BIN" | awk '{print $5}'))"
 if [ $BUILD_ONLY -eq 1 ]; then echo "[build-only] Binary saved. Skipping flash + smoke."; exit 0; fi
 
 echo "[2/3] Flashing to $PORT ..."
+# boot_app0.bin at 0xe000 resets otadata: this partition table has OTA slots
+# (app0/app1 + otadata), so a USB reflash MUST reset otadata or the bootloader
+# keeps booting whichever slot a previous OTA left active — silently running the
+# old firmware despite a "successful" flash to app0.
 python -m esptool --chip esp32s3 -p "$PORT" -b 921600 \
   --before default-reset --after hard-reset \
   write-flash --flash-mode dio --flash-size 16MB --flash-freq 80m \
   0x0000  "$BOOT" \
   0x8000  "$PART" \
+  0xe000  "$BOOT_APP0" \
   0x10000 "$BIN" 2>&1 | grep -E "Wrote|Hash|Connected|Hard|error"
 
 if [ ${PIPESTATUS[0]} -ne 0 ]; then echo "Flash failed."; exit 1; fi
@@ -132,6 +140,12 @@ if grep -E -q "$FATAL_PATTERNS" "$LOG" 2>/dev/null; then
 fi
 if [ "$RESETS" -gt 3 ]; then
   echo "----- SMOKE TEST: FAIL (boot loop — $RESETS resets in ${DURATION}s) -----"
+  exit 2
+fi
+# Require a positive boot marker: a silent device (dead, wrong baud, no boot)
+# produces no fatal pattern and 0 resets, which would otherwise PASS falsely.
+if ! grep -E -q "\[CFG\]|\[BUF\]|\[BOOT\]" "$LOG" 2>/dev/null; then
+  echo "----- SMOKE TEST: FAIL (no boot output captured — device silent?) -----"
   exit 2
 fi
 

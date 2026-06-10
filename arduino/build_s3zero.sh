@@ -132,6 +132,12 @@ if [ "$RESETS" -gt 3 ]; then
   echo "----- SMOKE TEST: FAIL (boot loop — $RESETS resets in ${DURATION}s) -----"
   exit 2
 fi
+# Require a positive boot marker: a silent device (dead, wrong baud, no boot)
+# produces no fatal pattern and 0 resets, which would otherwise PASS falsely.
+if ! grep -E -q "\[CFG\]|\[BUF\]|\[BOOT\]" "$LOG" 2>/dev/null; then
+  echo "----- SMOKE TEST: FAIL (no boot output captured — device silent?) -----"
+  exit 2
+fi
 
 echo "----- SMOKE TEST: PASS -----"
 grep -E "\[CFG\]|\[BUF\]|\[WIFI\]|\[EnergyCalibrator\]|\[SDM\]|\[SNAP\]|\[ERRLOG\]" "$LOG" | sed 's/^/  /'
