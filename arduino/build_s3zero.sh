@@ -116,6 +116,10 @@ fi
 
 LOG="/tmp/arduino_smoke_cal_s3zero.log"
 DURATION="${SMOKE_DURATION:-12}"
+# S3-Zero native USB-CDC re-enumerates on reset and buffers early TX until the host
+# reconnects; settle before opening the port or the boot banner is missed (the
+# positive-marker check below would then false-fail a board that actually booted).
+sleep 2
 echo "[3/3] Smoke test — capturing ${DURATION}s of boot serial on $PORT ..."
 
 stty -F "$PORT" 115200 cs8 -cstopb -parenb -icanon -echo -echoe -echok \
