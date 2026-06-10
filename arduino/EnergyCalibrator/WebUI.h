@@ -1361,28 +1361,37 @@ static void handlePostTest() {
 static bool _otaMetaOk  = false;
 static char _otaErr[64] = "";
 
-static bool _scanOtaMeta(const uint8_t* buf, size_t len) {
+// Returns: 1 = valid ZAX_META found (accept), -1 = a magic was found but a field
+// mismatched (sets the specific _otaErr), 0 = no magic in this window.
+// On a mismatch we record the error but KEEP scanning the window rather than
+// returning: 0x5A415843 can occur by chance in code/data ahead of the real
+// struct, and bailing on the first hit would (a) mask the genuine meta and
+// (b) report a misleading error. The caller must not treat -1 as a hard stop
+// either — a valid copy may still follow; only 1 is conclusive. The "not found"
+// message is owned by the caller (handleOtaUpload), which knows whether any
+// magic was seen across the whole upload, not just this one window.
+static int _scanOtaMeta(const uint8_t* buf, size_t len) {
   const uint32_t MAGIC = 0x5A415843UL;
+  int result = 0;
   for (size_t i = 0; i + sizeof(ZaxOtaMeta) <= len; i++) {
     uint32_t m; memcpy(&m, buf + i, 4);
     if (m != MAGIC) continue;
     ZaxOtaMeta meta; memcpy(&meta, buf + i, sizeof(meta));
     if (meta.hw_target != ZAX_META.hw_target) {
       snprintf(_otaErr, sizeof(_otaErr), "hw_target mismatch: %d", meta.hw_target);
-      return false;
+      result = -1; continue;
     }
     if (meta.sec_rec_size != ZAX_META.sec_rec_size) {
       snprintf(_otaErr, sizeof(_otaErr), "sec_rec_size %d!=%d", meta.sec_rec_size, ZAX_META.sec_rec_size);
-      return false;
+      result = -1; continue;
     }
     if (meta.min_rec_size != ZAX_META.min_rec_size) {
       snprintf(_otaErr, sizeof(_otaErr), "min_rec_size %d!=%d", meta.min_rec_size, ZAX_META.min_rec_size);
-      return false;
+      result = -1; continue;
     }
-    return true;
+    return 1;  // valid meta — accept immediately
   }
-  snprintf(_otaErr, sizeof(_otaErr), "ZAX_META magic not found in binary");
-  return false;
+  return result;  // -1 if some magic mismatched, else 0
 }
 
 static void handleGetOtaMeta() {
@@ -1414,9 +1423,18 @@ static void handleOtaUpload() {
   // We slide a window of (overlap + chunk) through the binary looking for the
   // ZaxOtaMeta magic. The overlap carries the last sizeof(ZaxOtaMeta)-1 bytes
   // of the previous chunk so the magic is never missed at a chunk boundary.
+  //
+  // Scan stops after 512 KB: ZAX_META is linked near the image start (it's a
+  // global referenced in setup), so it always lands well within the first few
+  // hundred KB. The cap bounds the per-chunk malloc/scan work for the rest of a
+  // multi-MB image, which is streamed straight to Update.write() unscanned.
+  //
+  // Upload MUST be multipart/form-data: a raw application/octet-stream body is
+  // re-read/reset by the ESP32 WebServer around ~71 KB, corrupting the stream.
   static uint8_t _overlap[sizeof(ZaxOtaMeta) - 1];
   static size_t  _scanned      = 0;
   static bool    _checked      = false;
+  static bool    _metaSeen     = false;   // a magic was found (matched or not)
   static bool    _updateStarted = false;
 
   HTTPUpload& up = server.upload();
@@ -1424,7 +1442,7 @@ static void handleOtaUpload() {
 
   if (up.status == UPLOAD_FILE_START) {
     _otaMetaOk = false; _otaErr[0] = '\0';
-    _scanned = 0; _checked = false;
+    _scanned = 0; _checked = false; _metaSeen = false;
     memset(_overlap, 0, sizeof(_overlap));
     _updateStarted = Update.begin(UPDATE_SIZE_UNKNOWN);
     if (!_updateStarted)
@@ -1439,7 +1457,9 @@ static void handleOtaUpload() {
       if (win) {
         memcpy(win, _overlap, ov);
         memcpy(win + ov, up.buf, csz);
-        if (_scanOtaMeta(win, wlen)) { _otaMetaOk = true; _checked = true; }
+        int r = _scanOtaMeta(win, wlen);
+        if (r == 1)       { _otaMetaOk = true; _checked = true; }
+        else if (r == -1) _metaSeen = true;   // bad copy seen — keep scanning for a valid one
         memcpy(_overlap, win + wlen - ov, ov);
         free(win);
       }
@@ -1450,7 +1470,12 @@ static void handleOtaUpload() {
     if (_checked && !_otaMetaOk) Update.abort();
 
   } else if (up.status == UPLOAD_FILE_END) {
-    if (!_checked) _checked = true;   // meta not found in entire binary → reject
+    if (!_checked) _checked = true;
+    // Owner of the "not found" message: only when no magic appeared anywhere and
+    // no earlier error (e.g. "Update.begin failed") already explains the failure.
+    // If _metaSeen, _otaErr already holds the specific field-mismatch reason.
+    if (!_otaMetaOk && !_metaSeen && _otaErr[0] == '\0')
+      strlcpy(_otaErr, "ZAX_META magic not found in binary", sizeof(_otaErr));
     if (_otaMetaOk && !Update.hasError()) Update.end(true);
     else Update.end(false);
   }
@@ -1473,6 +1498,11 @@ static void handleNotFound() {
 
 // ── route registration ────────────────────────────────────────────────────────
 
+// No per-request auth on any endpoint, including the state-changing ones
+// (/api/ota, /restart, /api/reset_energy, /api/config). This is deliberate:
+// access is gated at the network layer — the device's own AP is WPA2-protected
+// (cfg.ap_pass, min 8 chars) and STA mode joins a trusted LAN. Do not expose
+// this server to an untrusted network without adding authentication.
 static void setupWebRoutes() {
   server.on("/",             HTTP_GET,  handleIndex);
   server.on("/api/config",   HTTP_GET,  handleGetConfig);
