@@ -102,7 +102,8 @@ uint32_t     lastFaultsMs       = 0;
 // LilyGO image onto an S3-Zero, or a build whose SecRecord/MinRecord layout
 // differs from the snapshots already on flash (which would deserialise garbage).
 ZaxOtaMeta ZAX_META = { 0x5A415843UL, FW_VERSION, HW_TARGET, DATA_VERSION,
-                        (uint16_t)sizeof(SecRecord), (uint16_t)sizeof(MinRecord), {} };
+                        (uint16_t)sizeof(SecRecord), (uint16_t)sizeof(MinRecord),
+                        ZAX_PROJECT_ID, {} };
 
 // Box energy accumulators (same rollover-safe logic as ZaxMonitor).
 //

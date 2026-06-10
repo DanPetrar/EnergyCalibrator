@@ -38,7 +38,7 @@ struct MeterRecord {        // SDM630 reading (R phase = reference)
 // ── device configuration ──────────────────────────────────────────────────────
 
 #define CFG_NVS    "cal"
-#define FW_VERSION "1.0.10"
+#define FW_VERSION "1.0.11"
 #define DATA_VERSION 1
 
 #define BUF_MODE_LTE 0
@@ -51,6 +51,12 @@ struct MeterRecord {        // SDM630 reading (R phase = reference)
 #else
   #define HW_TARGET HW_TARGET_LILYGO
 #endif
+
+// Per-PROJECT id in the OTA meta — distinguishes this firmware family from the
+// sibling projects (ZaxModbus=2, ZaxEnergySurvey=3), which share the same magic
+// and struct sizes. Without it a wrong-project image would pass OTA validation.
+// 0 = legacy/pre-migration. Do NOT renumber once deployed.
+#define ZAX_PROJECT_ID 1
 
 struct ZaxConfig {
   char     dev_name[32];
@@ -90,8 +96,10 @@ struct ZaxOtaMeta {
   uint8_t  data_version;
   uint16_t sec_rec_size;
   uint16_t min_rec_size;
-  uint8_t  _pad[10];
+  uint8_t  project_id;      // ZAX_PROJECT_ID — per-project OTA discriminator
+  uint8_t  _pad[9];         // pad to 32 bytes (was 10; 1 byte taken by project_id)
 };
+static_assert(sizeof(ZaxOtaMeta) == 32, "ZaxOtaMeta must stay 32 bytes (OTA scan + RESCUE overlap depend on it)");
 
 extern ZaxOtaMeta ZAX_META;
 

@@ -1377,6 +1377,10 @@ static int _scanOtaMeta(const uint8_t* buf, size_t len) {
     uint32_t m; memcpy(&m, buf + i, 4);
     if (m != MAGIC) continue;
     ZaxOtaMeta meta; memcpy(&meta, buf + i, sizeof(meta));
+    if (meta.project_id != ZAX_META.project_id) {
+      snprintf(_otaErr, sizeof(_otaErr), "wrong project (id=%d)", meta.project_id);
+      result = -1; continue;
+    }
     if (meta.hw_target != ZAX_META.hw_target) {
       snprintf(_otaErr, sizeof(_otaErr), "hw_target mismatch: %d", meta.hw_target);
       result = -1; continue;
@@ -1398,6 +1402,7 @@ static void handleGetOtaMeta() {
   StaticJsonDocument<128> doc;
   doc["fw_version"]   = ZAX_META.fw_version;
   doc["hw_target"]    = ZAX_META.hw_target;
+  doc["project_id"]   = ZAX_META.project_id;
   doc["data_version"] = ZAX_META.data_version;
   doc["sec_rec_size"] = ZAX_META.sec_rec_size;
   doc["min_rec_size"] = ZAX_META.min_rec_size;
