@@ -25,10 +25,13 @@ if [ ! -d "${HOME}/Arduino/libraries/ZaxCommon/src" ]; then
   exit 1
 fi
 
-# FlashMode=dio required — QIO conflicts with OPI PSRAM init on ESP32-S3 rev v0.2
-# (S3-Zero has 2MB OPI PSRAM). The Waveshare board definition only offers qio,
-# so we use the generic esp32s3 FQBN with explicit DIO + OPI PSRAM settings.
-FQBN="esp32:esp32:esp32s3:UploadSpeed=921600,FlashMode=dio,FlashSize=4M,PSRAM=opi,USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=min_spiffs"
+# The Waveshare S3-Zero is an ESP32-S3 R2: 2MB **QSPI** PSRAM (esptool reports
+# "Embedded PSRAM 2MB (AP_3v3)"). PSRAM MUST be 'enabled' (= QSPI); 'opi' (octal)
+# silently fails PSRAM init ("octal_psram: chip not connected, or wrong PSRAM"),
+# leaving the rings unallocated AND the default OTA path's ps_malloc(512KB) failing.
+# Verified on Unit_F 2026-06-10. FlashMode=dio is retained (works with QSPI PSRAM);
+# changing flash mode is a separate question, out of scope for this PSRAM fix.
+FQBN="esp32:esp32:esp32s3:UploadSpeed=921600,FlashMode=dio,FlashSize=4M,PSRAM=enabled,USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=min_spiffs"
 
 # ── Port detection (skipped in build-only mode) ───────────────────────────────
 if [ $BUILD_ONLY -eq 0 ]; then
@@ -96,10 +99,10 @@ python -m esptool --chip esp32s3 -p "$PORT" -b 921600 \
 if [ ${PIPESTATUS[0]} -ne 0 ]; then echo "Flash failed."; exit 1; fi
 
 # ── Second reset — expose real boot behaviour before smoke test ───────────────
-# esptool's post-flash state can mask boot failures (e.g. QIO+OPI PSRAM conflict
-# on ESP32-S3 rev v0.2 shows clean boot right after flash but loops on any later
-# reset). A second chip_id → hard-reset simulates a power cycle so the smoke test
-# captures the same boot the device will produce in the field.
+# esptool's post-flash state can mask boot failures (a fault may show a clean boot
+# right after flash but loop on a later reset). A second chip_id → hard-reset
+# simulates a power cycle so the smoke test captures the same boot the device will
+# produce in the field.
 echo "[reset] Clean reset before smoke test ..."
 python -m esptool --chip esp32s3 -p "$PORT" \
   --before default-reset --after hard-reset chip_id > /dev/null 2>&1
