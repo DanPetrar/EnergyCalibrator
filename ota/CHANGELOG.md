@@ -1,5 +1,30 @@
 # EnergyCalibrator — OTA Firmware Changelog
 
+## v1.0.11 — 2026-06-10
+
+**Files:** `EnergyCalibrator_v1.0.11_lilygo.bin`, `EnergyCalibrator_v1.0.11_s3zero.bin`
+
+- **Cross-project OTA guard (`project_id` = 1)** — added a `project_id` byte to `ZaxOtaMeta`
+  (ZaxModbus = 2, ZaxEnergySurvey = 3). The OTA validator now rejects an image from another
+  project. Previously magic + record sizes + overlapping hw_target were identical across the
+  three projects, so a wrong-project image could pass validation. `magic` / `hw_target` /
+  record sizes are UNCHANGED, so deployed firmware still accepts this upgrade over OTA
+  (no-brick — verified on hardware). Struct stays 32 bytes (`static_assert`).
+- **OTA scanner diagnostics** — a coincidental `0x5A415843` in the image no longer hijacks the
+  reject message; field errors are gated on matching record sizes, and "real meta seen" persists
+  across the streaming scanner's chunk windows. Rejects now report the real reason
+  (`wrong project (id=N)`, `hw_target mismatch`, `incompatible record layout`).
+- **Config loader fix** — `loadConfig` no longer wipes string defaults (`ntp_srv`, `mqtt_topic`)
+  when an NVS key is absent (first boot / BOOT-button factory reset).
+- **Build (s3zero): PSRAM mode `opi` → `enabled`** — the Waveshare S3-Zero is an ESP32-S3 R2 with
+  2 MB **QSPI** (not octal) PSRAM; `PSRAM=opi` silently failed PSRAM init, leaving the history
+  rings unallocated. Now `PSRAM=enabled`. (Does not affect OTA, which uses a streaming scan.)
+- **Build (s3zero): smoke-capture fix** — reset → settle → single `cat` (no `stty`/pre-flush) so
+  the one-shot USB-CDC boot banner is actually captured.
+- **Validated on hardware (Unit_F, S3-Zero):** OTA accept of matching image; reject of
+  cross-project / wrong-board / pre-migration images with correct messages; rings allocate.
+  FW_VERSION 1.0.10 → 1.0.11.
+
 ## v1.0.10 — 2026-06-10
 
 **Files:** `EnergyCalibrator_v1.0.10_s3zero.bin`
