@@ -25,7 +25,10 @@ if [ ! -d "${HOME}/Arduino/libraries/ZaxCommon/src" ]; then
   exit 1
 fi
 
-FQBN="esp32:esp32:waveshare_esp32_s3_zero:UploadSpeed=921600,USBMode=hwcdc,CDCOnBoot=default,FlashMode=qio,PartitionScheme=min_spiffs,PSRAM=enabled"
+# FlashMode=dio required — QIO conflicts with OPI PSRAM init on ESP32-S3 rev v0.2
+# (S3-Zero has 2MB OPI PSRAM). The Waveshare board definition only offers qio,
+# so we use the generic esp32s3 FQBN with explicit DIO + OPI PSRAM settings.
+FQBN="esp32:esp32:esp32s3:UploadSpeed=921600,FlashMode=dio,FlashSize=4M,PSRAM=opi,USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=min_spiffs"
 
 # ── Port detection (skipped in build-only mode) ───────────────────────────────
 if [ $BUILD_ONLY -eq 0 ]; then
@@ -84,7 +87,7 @@ if [ $BUILD_ONLY -eq 1 ]; then echo "[build-only] Binary saved. Skipping flash +
 echo "[2/3] Flashing to $PORT ..."
 python -m esptool --chip esp32s3 -p "$PORT" -b 921600 \
   --before default-reset --after hard-reset \
-  write-flash --flash-mode qio --flash-size 4MB --flash-freq 80m \
+  write-flash --flash-mode dio --flash-size 4MB --flash-freq 80m \
   0x0000  "$BOOT" \
   0x8000  "$PART" \
   0xe000  "$BOOT_APP0" \
